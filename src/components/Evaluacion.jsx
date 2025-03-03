@@ -1,5 +1,6 @@
 // components/Evaluacion.jsx
 import React, { useState, useEffect } from 'react';
+import { db, collection, getDocs, setDoc, doc, updateDoc } from '../firebase-config'; // Importa las funciones de Firebase
 
 
 // === 1) Datos iniciales (la matriz base con los 40 procesos, incluyendo los nuevos)
@@ -87,6 +88,33 @@ const getEstado = (p) => {
     if (p >= 95) return 'Cumple';
 };
 
+// Guardar los datos en Firestore
+const saveDataToFirestore = async (data) => {
+    const colRef = collection(db, "procesos"); // Nombre de la colección en Firestore
+    data.forEach(async (item) => {
+        await setDoc(doc(colRef, item.id), item); // Guardar o actualizar el documento por su id
+    });
+};
+
+// Leer los datos desde Firestore
+const fetchDataFromFirestore = async () => {
+    const colRef = collection(db, "procesos");
+    const snapshot = await getDocs(colRef);
+    const data = snapshot.docs.map(doc => doc.data());
+    return data;
+};
+
+// Función para actualizar el porcentaje y guardar en Firestore
+const updatePorcentaje = (e, id, data, setData) => {
+    const p = parseFloat(e.target.value);
+    const updatedData = data.map(item =>
+        item.id === id
+            ? { ...item, porcentaje: isNaN(p) ? 0 : p, estado: getEstado(isNaN(p) ? 0 : p) }
+            : item
+    );
+    setData(updatedData);  // Actualiza el estado local
+    saveDataToFirestore([updatedData.find(item => item.id === id)]);  // Guarda solo el item actualizado
+};
 
 // Actualiza el acumulado por mes
 const updateAcumulado = (e, mes, field) => {
@@ -187,15 +215,62 @@ const Evaluacion = () => {
     const [data, setData] = useState(initialData);
     const [acumulado, setAcumulado] = useState(initialAcumulado);
     const [nivelStats, setNivelStats] = useState(initialNivelStats);
-    
-    
+
+    // Guardar datos iniciales en Firestore cuando el componente se monta
+    useEffect(() => {
+        saveDataToFirestore(initialData); // Guardamos los datos en Firestore
+    }, []);
+
+    // Obtener los datos de Firestore cuando el componente se monta
+    useEffect(() => {
+        const loadData = async () => {
+            const fetchedData = await fetchDataFromFirestore();
+            setData(fetchedData); // Actualizamos el estado con los datos obtenidos
+        };
+        loadData();
+    }, []);
+
+    // Función para actualizar el porcentaje y guardar en Firestore
+    const updatePorcentaje = (e, id) => {
+        const p = parseFloat(e.target.value);
+        setData(data.map(item =>
+            item.id === id
+                ? { ...item, porcentaje: isNaN(p) ? 0 : p, estado: getEstado(isNaN(p) ? 0 : p) }
+                : item
+        ));
+
+        // Guardar el cambio en Firestore
+        const updatedItem = data.find(item => item.id === id);
+        saveDataToFirestore([updatedItem]); // Guardamos solo el item actualizado
+    };
+
 
     // Función para actualizar valores de los campos en la tabla
     const updateAcumulado = (e, mes, field) => {
         const value = parseInt(e.target.value) || 0;
-        setAcumulado(acumulado.map(item =>
+        const updatedAcumulado = acumulado.map(item =>
             item.mes === mes ? { ...item, [field]: value } : item
-        ));
+        );
+        setAcumulado(updatedAcumulado);  // Actualiza el estado local
+        saveDataToFirestore(updatedAcumulado);  // Guarda todo el acumulado
+    };
+
+    // Actualizar el acumulado por nivel y guardar en Firestore
+    const updateNivelStats = (e, nivel, campo) => {
+        const newValue = parseInt(e.target.value, 10); // Convertir el valor a número
+        const updatedNivelStats = nivelStats.map(item => {
+            if (item.nivel === nivel) {
+                const updatedItem = { ...item, [campo]: newValue };
+                // Recalcular los porcentajes
+                const { pcCumple, pcParcial, pcNoCumple, pcNoMedido } = calculatePercentage(
+                    updatedItem.cumple, updatedItem.cumpleParcial, updatedItem.noCumple, updatedItem.noMedido
+                );
+                return { ...updatedItem, pcCumple, pcParcial, pcNoCumple, pcNoMedido };
+            }
+            return item;
+        });
+        setNivelStats(updatedNivelStats);  // Actualiza el estado local
+        saveDataToFirestore(updatedNivelStats);  // Guarda todo el nivelStats
     };
 
 
@@ -247,35 +322,24 @@ const Evaluacion = () => {
         setNivelStats(updatedStats);
     }, [data]);
 
-
-    // Actualiza el % de cumplimiento y recalcula estado
-    const updatePorcentaje = (e, id) => {
-        const p = parseFloat(e.target.value);
-        setData(data.map(item =>
-            item.id === id
-                ? { ...item, porcentaje: isNaN(p) ? 0 : p, estado: getEstado(isNaN(p) ? 0 : p) }
-                : item
-        ));
-    };
-
-    // Actualiza un campo genérico (por ejemplo categoría o nivel)
+    // Función para actualizar un campo genérico y guardar en Firestore
     const updateField = (id, field, newValue) => {
         setData(prevData => {
-            return prevData.map(item => {
+            const updatedData = prevData.map(item => {
                 if (item.id === id) {
-                    // Actualizar el nivel del proceso
                     if (field === 'nivel') {
-                        const updatedItem = { ...item, nivel: parseInt(newValue, 10) };
-                        // Retorna el updatedItem para que React lo actualice en el estado
-                        return updatedItem;
+                        return { ...item, nivel: parseInt(newValue, 10) };
                     }
-                    // Actualizar categoría
                     if (field === 'categoria') {
                         return { ...item, categoria: newValue };
                     }
                 }
                 return item;
             });
+
+            // Guardamos los cambios en Firestore
+            saveDataToFirestore(updatedData);
+            return updatedData;
         });
     };
 
@@ -367,6 +431,24 @@ const Evaluacion = () => {
         row.cumple + row.cumpleParcial + row.noCumple + row.noMedido > 0
     );
 
+    // Calcular los porcentajes
+    const calculatePercentage = (cumple, cumpleParcial, noCumple, noMedido) => {
+        const total = cumple + cumpleParcial + noCumple + noMedido;
+        const pcCumple = total === 0 ? '0%' : `${Math.round((cumple / total) * 100)}%`;
+        const pcParcial = total === 0 ? '0%' : `${Math.round((cumpleParcial / total) * 100)}%`;
+        const pcNoCumple = total === 0 ? '0%' : `${Math.round((noCumple / total) * 100)}%`;
+        const pcNoMedido = total === 0 ? '0%' : `${Math.round((noMedido / total) * 100)}%`;
+        return { pcCumple, pcParcial, pcNoCumple, pcNoMedido };
+    };
+
+    // Función para guardar todos los datos de la matriz base
+    const updateAllData = () => {
+        saveDataToFirestore(data); // Guarda todos los datos de la matriz base
+        saveDataToFirestore(acumulado); // Guarda los datos de la tabla acumulada
+        saveDataToFirestore(nivelStats); // Guarda las estadísticas de nivel
+        alert('Los datos se han actualizado correctamente.');
+    };
+
     return (
 
 
@@ -382,7 +464,7 @@ const Evaluacion = () => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                        {displayedData.map(item => (
+                        {data.map(item => (
                             <tr key={item.id} className="hover:bg-gray-100">
                                 {/* Proceso */}
                                 <td className="border px-2 py-1 text-center">{item.proceso}</td>
@@ -466,7 +548,18 @@ const Evaluacion = () => {
                 </table>
             </div>
 
-
+            {/* Botón de actualizar */}
+            <div className="flex justify-center mt-4">
+                <button
+                    onClick={updateAllData}
+                    className="bg-green-500 text-white px-4 py-2 rounded-md"
+                >
+                    Actualizar Todos los Datos
+                </button>
+            </div>
+                        <br />
+                        <br />
+                        <hr />
             {/* === Tabla de resumen por categoría === */}
             <div className="overflow-x-auto">
                 <table className="min-w-full border-collapse text-[10px] shadow-lg rounded-lg">
@@ -514,6 +607,7 @@ const Evaluacion = () => {
                     </tbody>
                 </table>
 
+                        <hr />
 
                 <div className="p-2 pb-12">
                     {/* === Tabla acumulada === */}
@@ -579,8 +673,7 @@ const Evaluacion = () => {
                     </div>
                 </div>
 
-
-
+                        
                 <div className="p-2 pb-12">
                     {/* === Tabla de Estado por Nivel de ISM3 === */}
                     <div className="overflow-x-auto mb-8">
@@ -619,7 +712,7 @@ const Evaluacion = () => {
 
 
             </div>
-        </div>
+        </div >
 
     );
 };
