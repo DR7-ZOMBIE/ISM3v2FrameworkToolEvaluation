@@ -1,18 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, getDocs, setDoc, doc, updateDoc } from '../firebase-config'; // Importa las funciones de Firebase
+import { 
+  db, 
+  collection, 
+  getDocs, 
+  setDoc, 
+  doc, 
+  onSnapshot,
+  deleteDoc 
+} from '../firebase-config';
 
-import AcumuladoTable from '../components/AcumuladoTable'; // Componente para la tabla de Acumulado
-import CategoryTable from '../components/CategoryTable';   // Componente para la tabla de Categorías
-import NivelTable from '../components/NivelTable';         // Componente para la tabla de Niveles
+import AcumuladoTable from '../components/AcumuladoTable';
+import CategoryTable from '../components/CategoryTable';
+import NivelTable from '../components/NivelTable';
 
-// === Datos iniciales (matrices base con procesos, acumulado y estadísticas)
+// Datos iniciales para los procesos
 const initialData = [
     { id: 'GP-1', proceso: 'GP-1', nombre: 'Gestionar Conocimiento', responsable: 'SEGURIDAD', estado: 'Cumple', porcentaje: 100, categoria: 'c', nivel: 1, editable: true },
     { id: 'GP-2', proceso: 'GP-2', nombre: 'Auditoría de SGSI y de congruencia con la institución', responsable: 'SEGURIDAD', estado: 'Cumple', porcentaje: 100, categoria: 'g', nivel: 1, editable: true },
     { id: 'OSP-1', proceso: 'OSP-1', nombre: 'Reportar a la gerencia táctica', responsable: 'SEGURIDAD', estado: 'Cumple', porcentaje: 100, categoria: 'o', nivel: 1, editable: true },
 ];
 
-// === Función para obtener el color basado en el estado
+// Función que retorna el color en función del estado
 const getStatusColor = (estado) => {
     if (estado === 'No Cumple') return 'bg-red-200 text-red-900';
     if (estado === 'Cumple Parcialmente') return 'bg-orange-200 text-orange-900';
@@ -20,7 +28,7 @@ const getStatusColor = (estado) => {
     return '';
 };
 
-// === Función para obtener el estado en función del porcentaje
+// Función para determinar el estado según el porcentaje
 const getEstado = (p) => {
     if (p === 0) return 'No Medido';
     if (p <= 84) return 'No Cumple';
@@ -28,45 +36,53 @@ const getEstado = (p) => {
     if (p >= 95) return 'Cumple';
 };
 
-// === Guardar los datos en Firestore
-const saveDataToFirestore = async (data, collectionName) => {
+// Función genérica para guardar documentos en Firestore
+const saveDocumentsToFirestore = async (data, collectionName, idKey) => {
     const colRef = collection(db, collectionName);
-    data.forEach(async (item) => {
-        await setDoc(doc(colRef, item.id), item);
-    });
+    await Promise.all(
+        data.map((item) => setDoc(doc(colRef, item[idKey]), item))
+    );
 };
 
-// === Leer los datos desde Firestore
-const fetchDataFromFirestore = async (collectionName) => {
+// Función para leer documentos desde Firestore
+const fetchDocumentsFromFirestore = async (collectionName) => {
     const colRef = collection(db, collectionName);
     const snapshot = await getDocs(colRef);
-    const data = snapshot.docs.map(doc => doc.data());
-    return data;
+    return snapshot.docs.map((doc) => doc.data());
 };
 
-// === Cálculo de estadísticas por categoría y nivel
+// Cálculo de estadísticas por categoría
 const calculateCategoryStats = (data) => {
     const categoryStats = {};
     const possibleCategories = ['c', 'o', 'v', 'r', '$', 'g', 'p'];
-    const categoryNames = { c: 'Cultura/Entrenamiento', o: 'Operar Seguros', v: 'Vigilar/Prever', r: 'Resiliencia/Continuidad', $: 'Inversiones/Presupuesto', g: 'Gestión de Seguridad', p: 'Planeación' };
+    const categoryNames = {
+        c: 'Cultura/Entrenamiento',
+        o: 'Operar Seguros',
+        v: 'Vigilar/Prever',
+        r: 'Resiliencia/Continuidad',
+        $: 'Inversiones/Presupuesto',
+        g: 'Gestión de Seguridad',
+        p: 'Planeación'
+    };
 
-    // Inicializa las categorías
     possibleCategories.forEach(category => {
-        categoryStats[category] = { nombre: categoryNames[category], cumple: 0, cumpleParcial: 0, noCumple: 0, noMedido: 0 };
+        categoryStats[category] = {
+            nombre: categoryNames[category],
+            cumple: 0,
+            cumpleParcial: 0,
+            noCumple: 0,
+            noMedido: 0
+        };
     });
 
     data.forEach(item => {
-        const estado = item.estado;
-        const categoria = item.categoria;
-
-        // Cuenta los estados
+        const { estado, categoria } = item;
         if (estado === 'Cumple') categoryStats[categoria].cumple++;
         else if (estado === 'Cumple Parcialmente') categoryStats[categoria].cumpleParcial++;
         else if (estado === 'No Cumple') categoryStats[categoria].noCumple++;
         else if (estado === 'No Medido') categoryStats[categoria].noMedido++;
     });
 
-    // Calcula los porcentajes por categoría
     Object.keys(categoryStats).forEach(category => {
         const stats = categoryStats[category];
         const total = stats.cumple + stats.cumpleParcial + stats.noCumple + stats.noMedido;
@@ -79,26 +95,28 @@ const calculateCategoryStats = (data) => {
     return categoryStats;
 };
 
+// Cálculo de estadísticas por nivel
 const calculateNivelStats = (data) => {
     const nivelStats = {};
-
-    // Inicializa los niveles
     for (let i = 1; i <= 4; i++) {
-        nivelStats[i] = { nombre: `Nivel ${i}`, cumple: 0, cumpleParcial: 0, noCumple: 0, noMedido: 0 };
+        nivelStats[i] = {
+            nivel: i,
+            nombre: `Nivel ${i}`,
+            cumple: 0,
+            cumpleParcial: 0,
+            noCumple: 0,
+            noMedido: 0
+        };
     }
 
-    // Cuenta los estados por nivel
     data.forEach(item => {
-        const estado = item.estado;
-        const nivel = item.nivel;
-
+        const { estado, nivel } = item;
         if (estado === 'Cumple') nivelStats[nivel].cumple++;
         else if (estado === 'Cumple Parcialmente') nivelStats[nivel].cumpleParcial++;
         else if (estado === 'No Cumple') nivelStats[nivel].noCumple++;
         else if (estado === 'No Medido') nivelStats[nivel].noMedido++;
     });
 
-    // Calcula los porcentajes por nivel
     Object.keys(nivelStats).forEach(nivel => {
         const stats = nivelStats[nivel];
         const total = stats.cumple + stats.cumpleParcial + stats.noCumple + stats.noMedido;
@@ -117,139 +135,101 @@ const Evaluacion = () => {
     const [nivelStats, setNivelStats] = useState([]);
     const [categoryStats, setCategoryStats] = useState({});
 
+    // Guardar los datos iniciales en Firestore (solo al primer montaje)
     useEffect(() => {
-        // Guardar datos iniciales en Firestore cuando el componente se monta
-        saveDataToFirestore(initialData, 'procesos');
-        saveDataToFirestore([], 'acumulado');
-        saveDataToFirestore([], 'nivelStats');
+        saveDocumentsToFirestore(initialData, 'procesos', 'id');
     }, []);
 
+    // Escuchar cambios en la colección "procesos" en tiempo real
+    useEffect(() => {
+        const colRef = collection(db, 'procesos');
+        const unsubscribe = onSnapshot(colRef, (snapshot) => {
+            const procesos = snapshot.docs.map((doc) => doc.data());
+            setData(procesos);
+            setCategoryStats(calculateCategoryStats(procesos));
+            setNivelStats(Object.values(calculateNivelStats(procesos)));
+        });
+        return () => unsubscribe();
+    }, []);
+
+    // Cargar datos de "acumulado"
     useEffect(() => {
         const loadAcumulado = async () => {
-            const fetchedAcumulado = await fetchDataFromFirestore('acumulado');
-            setAcumulado(fetchedAcumulado);
+            const acumuladoData = await fetchDocumentsFromFirestore('acumulado');
+            setAcumulado(acumuladoData);
         };
         loadAcumulado();
     }, []);
 
-
-    // Guardar los datos en Firestore
-    const saveDataToFirestore = async (data, collectionName) => {
-        const colRef = collection(db, collectionName);
-        data.forEach(async (item) => {
-            await setDoc(doc(colRef, item.mes), item); // Usamos el campo 'mes' como id
-        });
+    // Función para actualizar procesos y sincronizar en Firestore
+    const handleUpdateProcesos = (updatedData) => {
+        setData(updatedData);
+        saveDocumentsToFirestore(updatedData, 'procesos', 'id');
+        setCategoryStats(calculateCategoryStats(updatedData));
+        setNivelStats(Object.values(calculateNivelStats(updatedData)));
     };
 
-    useEffect(() => {
-        const loadData = async () => {
-            const fetchedData = await fetchDataFromFirestore('procesos');
-            setData(fetchedData);
-            const calculatedCategoryStats = calculateCategoryStats(fetchedData);
-            setCategoryStats(calculatedCategoryStats);
-            const calculatedNivelStats = calculateNivelStats(fetchedData);
-            setNivelStats(calculatedNivelStats);
-        };
-        const loadAcumulado = async () => {
-            const fetchedAcumulado = await fetchDataFromFirestore('acumulado');
-            setAcumulado(fetchedAcumulado);
-        };
-
-        loadData();
-        loadAcumulado();
-    }, []);
-
+    // Actualizar el porcentaje y estado en función del valor ingresado
     const updatePorcentaje = (e, id) => {
         const p = parseFloat(e.target.value);
-        setData(data.map(item =>
+        const updatedData = data.map(item =>
             item.id === id
                 ? { ...item, porcentaje: isNaN(p) ? 0 : p, estado: getEstado(isNaN(p) ? 0 : p) }
                 : item
-        ));
-
-        const updatedItem = data.find(item => item.id === id);
-        saveDataToFirestore([updatedItem], 'procesos');
+        );
+        handleUpdateProcesos(updatedData);
     };
 
+    // Actualizar cualquier otro campo de un proceso
     const updateField = (id, field, value) => {
-        const updatedData = data.map(item => {
-            if (item.id === id) {
-                return { ...item, [field]: value };
-            }
-            return item;
-        });
-        setData(updatedData);
-        saveDataToFirestore(updatedData, 'procesos');
-
-        // Recalcular las estadísticas después de la actualización
-        const recalculatedCategoryStats = calculateCategoryStats(updatedData);
-        setCategoryStats(recalculatedCategoryStats);
-        const recalculatedNivelStats = calculateNivelStats(updatedData);
-        setNivelStats(recalculatedNivelStats);
+        const updatedData = data.map(item =>
+            item.id === id ? { ...item, [field]: value } : item
+        );
+        handleUpdateProcesos(updatedData);
     };
 
+    // Actualizar estadísticas de nivel (usando "nivel" como id)
     const updateNivelStats = (e, nivel, campo) => {
         const newValue = parseInt(e.target.value, 10);
-        const updatedNivelStats = nivelStats.map(item => {
-            if (item.nivel === nivel) {
-                const updatedItem = { ...item, [campo]: newValue };
-                return updatedItem;
-            }
-            return item;
-        });
+        const updatedNivelStats = nivelStats.map(item =>
+            item.nivel === nivel ? { ...item, [campo]: newValue } : item
+        );
         setNivelStats(updatedNivelStats);
-        saveDataToFirestore(updatedNivelStats, 'nivelStats');
+        saveDocumentsToFirestore(updatedNivelStats, 'nivelStats', 'nivel');
     };
 
-    useEffect(() => {
-        // Cargar los datos de la colección "acumulado" desde Firestore cuando el componente se monta
-        const loadAcumulado = async () => {
-            const fetchedAcumulado = await fetchDataFromFirestore('acumulado');
-            setAcumulado(fetchedAcumulado);
-        };
-        loadAcumulado();
-    }, []);
+    // Funciones para la colección "acumulado"
 
-    useEffect(() => {
-        const loadAcumulado = async () => {
-            const fetchedAcumulado = await fetchDataFromFirestore('acumulado');
-            setAcumulado(fetchedAcumulado);
-        };
-        loadAcumulado();
-    }, []);
-
-    // Función para agregar una nueva fila con valores predeterminados
-    const addRow = () => {
-        const newRow = {
-            mes: '', // Mes vacío para que lo edite el usuario
-            cumple: 0,
-            cumpleParcial: 0,
-            noCumple: 0,
-            noMedido: 0,
-            noAplica: 0
-        };
-        setAcumulado([...acumulado, newRow]);
+    // Agregar una nueva fila con un id único
+    const addRowAcumulado = () => {
+        const newRow = { id: Date.now().toString(), mes: '', cumple: 0, cumpleParcial: 0, noCumple: 0, noMedido: 0, noAplica: 0 };
+        const updatedAcumulado = [...acumulado, newRow];
+        setAcumulado(updatedAcumulado);
+        saveDocumentsToFirestore(updatedAcumulado, 'acumulado', 'id');
     };
 
-    // Función para eliminar una fila
-    const deleteRow = (index) => {
-        const updatedRows = acumulado.filter((_, i) => i !== index);
-        setAcumulado(updatedRows);
+    // Eliminar una fila usando el id y borrándola de Firestore
+    const deleteRowAcumulado = async (id) => {
+        // Primero borramos el documento de Firestore
+        await deleteDoc(doc(db, 'acumulado', id));
+        // Luego actualizamos el estado local
+        const updatedAcumulado = acumulado.filter(item => item.id !== id);
+        setAcumulado(updatedAcumulado);
     };
 
-    // Función para actualizar un campo específico de una fila
-    const updateAcumulado = (e, mes, field) => {
+    // Actualizar una fila de "acumulado" usando el id
+    const updateAcumulado = (e, id, field) => {
+        const value = field === 'mes' ? e.target.value : parseInt(e.target.value, 10) || 0;
         const updatedAcumulado = acumulado.map(item =>
-            item.mes === mes ? { ...item, [field]: parseInt(e.target.value) || 0 } : item
+            item.id === id ? { ...item, [field]: value } : item
         );
         setAcumulado(updatedAcumulado);
-        saveDataToFirestore(updatedAcumulado, 'acumulado'); // Guardar los datos actualizados en Firestore
+        saveDocumentsToFirestore(updatedAcumulado, 'acumulado', 'id');
     };
-
 
     return (
         <div className="p-2 pb-12">
-            {/* === Tabla principal === */}
+            {/* Tabla de procesos */}
             <div className="overflow-x-auto mb-8">
                 <table className="min-w-full border-collapse text-[10px] shadow-lg rounded-lg">
                     <thead className="bg-blue-200 text-blue-900">
@@ -288,7 +268,7 @@ const Evaluacion = () => {
                                 <td className="border px-2 py-1 text-center">
                                     <select
                                         value={item.nivel}
-                                        onChange={(e) => updateField(item.id, 'nivel', e.target.value)}
+                                        onChange={(e) => updateField(item.id, 'nivel', parseInt(e.target.value, 10))}
                                         className="border rounded text-[10px] p-1"
                                     >
                                         {[1, 2, 3, 4].map(nivel => (
@@ -302,14 +282,15 @@ const Evaluacion = () => {
                 </table>
             </div>
 
-            {/* === Tabla de acumulado por mes === */}
-            <AcumuladoTable acumulado={acumulado} updateAcumulado={updateAcumulado} />
-
-            {/* === Tabla de categorías === */}
+            {/* Tablas adicionales */}
+            <AcumuladoTable
+                acumulado={acumulado}
+                updateAcumulado={updateAcumulado}
+                addRowAcumulado={addRowAcumulado}
+                deleteRowAcumulado={deleteRowAcumulado}
+            />
             <CategoryTable categoryStats={Object.values(categoryStats)} />
-
-            {/* === Tabla de niveles === */}
-            <NivelTable nivelStats={Object.values(nivelStats)} updateNivelStats={updateNivelStats} />
+            <NivelTable nivelStats={nivelStats} updateNivelStats={updateNivelStats} />
         </div>
     );
 };
