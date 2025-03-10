@@ -1,21 +1,21 @@
+// src/App.jsx
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import Navbar from './components/Navbar';
+import Layout from './components/Layout';
 import HeroSection from './components/HeroSection';
 import Evaluacion from './components/Evaluacion';
 import Reportes from './components/Reportes';
-import Footer from './components/Footer';
 
 function App() {
   return (
     <BrowserRouter>
-      <Navbar />
       <Routes>
-        <Route path="/" element={<HeroSection />} />
-        <Route path="/evaluacion" element={<Evaluacion />} />
-        <Route path="/reportes" element={<Reportes />} />
+        <Route path="/" element={<Layout />}>
+          <Route index element={<HeroSection />} />
+          <Route path="evaluacion" element={<Evaluacion />} />
+          <Route path="reportes" element={<Reportes />} />
+        </Route>
       </Routes>
-      <Footer />
     </BrowserRouter>
   );
 }

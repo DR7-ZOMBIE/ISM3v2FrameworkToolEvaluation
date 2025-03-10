@@ -1,10 +1,42 @@
 import React, { useState, useEffect, useRef } from 'react';
-import Chart from 'react-apexcharts';
+import { Radar, Bar, Pie, Line } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  RadialLinearScale,
+  PointElement,
+  LineElement,
+  ArcElement,
+  Filler,  // Importamos el plugin Filler para habilitar fill
+} from 'chart.js';
 import { db, collection, getDocs } from '../firebase-config';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
-// Mapa de categorías (ajústalo según tus necesidades)
+// Registrar componentes y plugins en Chart.js
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  RadialLinearScale,
+  PointElement,
+  LineElement,
+  ArcElement,
+  Filler  // Registramos Filler para usar fill en el line chart
+);
+
+// Forzamos a Chart.js a usar colores compatibles
+ChartJS.defaults.color = '#000000';
+
+// Mapa de categorías (puedes ajustar según tus necesidades)
 const categoriesMap = {
   c: 'ENTRENAMIENTO/CULTURA (C)',
   o: 'OPERAR SEGUROS (O)',
@@ -15,14 +47,12 @@ const categoriesMap = {
   p: 'PROTECCIÓN (P)',
 };
 
-// Función para obtener documentos desde Firestore
 const fetchDocumentsFromFirestore = async (collectionName) => {
   const colRef = collection(db, collectionName);
   const snapshot = await getDocs(colRef);
   return snapshot.docs.map((doc) => doc.data());
 };
 
-// Calcula las estadísticas por categoría
 const calculateCategoryStats = (data) => {
   const categoryStats = {};
   const possibleCategories = ['c', 'o', 'v', 'r', '$', 'g', 'p'];
@@ -71,7 +101,6 @@ const calculateCategoryStats = (data) => {
   return categoryStats;
 };
 
-// Calcula las estadísticas por nivel
 const calculateNivelStats = (data) => {
   const nivelStats = {};
   for (let i = 1; i <= 4; i++) {
@@ -95,25 +124,20 @@ const calculateNivelStats = (data) => {
 };
 
 const Reportes = () => {
-  // Referencia al contenedor para exportar a PDF
   const containerRef = useRef(null);
+  const radarRef = useRef(null);
+  const lineRef = useRef(null);
+  const barRef = useRef(null);
+  const pieRef = useRef(null);
 
-  // Estados para datos leídos desde Firestore
   const [procesos, setProcesos] = useState([]);
   const [acumulado, setAcumulado] = useState([]);
   const [nivelStatsData, setNivelStatsData] = useState([]);
+  const [radarData, setRadarData] = useState({});
+  const [lineData, setLineData] = useState({});
+  const [barData, setBarData] = useState({});
+  const [pieData, setPieData] = useState({});
 
-  // Estados para configurar los gráficos con ApexCharts
-  const [radarSeries, setRadarSeries] = useState([]);
-  const [radarOptions, setRadarOptions] = useState({});
-  const [areaSeries, setAreaSeries] = useState([]);
-  const [areaOptions, setAreaOptions] = useState({});
-  const [nivelSeries, setNivelSeries] = useState([]);
-  const [nivelOptions, setNivelOptions] = useState({});
-  const [pieSeries, setPieSeries] = useState([]);
-  const [pieOptions, setPieOptions] = useState({});
-
-  // Leer datos de Firestore al montar el componente
   useEffect(() => {
     const fetchAllData = async () => {
       const procs = await fetchDocumentsFromFirestore('procesos');
@@ -126,168 +150,141 @@ const Reportes = () => {
     fetchAllData();
   }, []);
 
-  // Calcular datos para configurar los gráficos cuando la información esté disponible
   useEffect(() => {
     if (!procesos.length || !acumulado.length || !nivelStatsData.length) return;
 
-    // (A) Gráfico Radar: % Cumple por Categoría (más grande)
+    // (A) Radar: % Cumple por Categoría
     const catStats = calculateCategoryStats(procesos);
     const catKeys = Object.keys(catStats);
-    const radarCategories = catKeys.map((key) => catStats[key].nombre.toUpperCase());
-    const radarDataValues = catKeys.map((key) => {
+    const labelsRadar = catKeys.map((key) => catStats[key].nombre.toUpperCase());
+    const dataRadar = catKeys.map((key) => {
       const s = catStats[key];
       const total = s.cumple + s.cumpleParcial + s.noCumple + s.noMedido || 1;
       return Math.round((s.cumple / total) * 100);
     });
-    setRadarSeries([{ name: '% Cumple', data: radarDataValues }]);
-    setRadarOptions({
-      chart: { 
-        type: 'radar', 
-        height: 700,
-        toolbar: { show: false },
-        dropShadow: { enabled: true, top: 3, left: 2, blur: 4, opacity: 0.2 }
-      },
-      title: { 
-        text: 'Cumplimiento por Objetivos de Seguridad', 
-        style: { fontSize: '24px', fontWeight: 'bold' } 
-      },
-      xaxis: { categories: radarCategories, labels: { style: { fontSize: '16px' } } },
-      yaxis: { max: 100, min: 0, labels: { style: { fontSize: '14px' } } },
-      stroke: { width: 2 },
-      fill: { opacity: 0.3 },
-      markers: { size: 6 },
-      colors: ['#1ABC9C']
+    setRadarData({
+      labels: labelsRadar,
+      datasets: [
+        {
+          label: '% Cumple',
+          data: dataRadar,
+          backgroundColor: 'rgba(26, 188, 156, 0.2)',
+          borderColor: '#1ABC9C',
+          borderWidth: 2,
+          pointBackgroundColor: '#1ABC9C',
+        },
+      ],
     });
 
-    // (B) Gráfico de Área Apilada: Acumulado por Mes
-    const mesLabels = acumulado.map((item) => item.mes);
-    const cumpleAcum = acumulado.map((item) => item.cumple);
-    const cumpleParcialAcum = acumulado.map((item) => item.cumpleParcial);
-    const noCumpleAcum = acumulado.map((item) => item.noCumple);
-    const noMedidoAcum = acumulado.map((item) => item.noMedido);
-    setAreaSeries([
-      { name: 'Cumple', data: cumpleAcum },
-      { name: 'Cumple Parcial', data: cumpleParcialAcum },
-      { name: 'No Cumple', data: noCumpleAcum },
-      { name: 'No Medido', data: noMedidoAcum },
-    ]);
-    setAreaOptions({
-      chart: { 
-        type: 'area', 
-        stacked: true, 
-        toolbar: { show: false },
-        dropShadow: { enabled: true, top: 3, left: 2, blur: 4, opacity: 0.1 }
-      },
-      title: { 
-        text: 'Comportamiento por Mes Acumulado', 
-        style: { fontSize: '20px', fontWeight: 'bold' } 
-      },
-      xaxis: { categories: mesLabels, title: { text: 'Mes', style: { fontSize: '14px' } } },
-      yaxis: { title: { text: 'Cantidad', style: { fontSize: '14px' } } },
-      colors: ['#1ABC9C', '#F39C12', '#E74C3C', '#7F8C8D'],
-      legend: { position: 'bottom', labels: { style: { fontSize: '14px' } } },
-      dataLabels: { enabled: false },
-      stroke: { curve: 'smooth' }
+    // (B) Línea: Acumulado por Mes (simula área apilada)
+    const labelsLine = acumulado.map((item) => item.mes);
+    setLineData({
+      labels: labelsLine,
+      datasets: [
+        {
+          label: 'Cumple',
+          data: acumulado.map((item) => item.cumple),
+          backgroundColor: 'rgba(26, 188, 156, 0.4)',
+          borderColor: '#1ABC9C',
+          fill: true,
+        },
+        {
+          label: 'Cumple Parcial',
+          data: acumulado.map((item) => item.cumpleParcial),
+          backgroundColor: 'rgba(243, 156, 18, 0.4)',
+          borderColor: '#F39C12',
+          fill: true,
+        },
+        {
+          label: 'No Cumple',
+          data: acumulado.map((item) => item.noCumple),
+          backgroundColor: 'rgba(231, 76, 60, 0.4)',
+          borderColor: '#E74C3C',
+          fill: true,
+        },
+        {
+          label: 'No Medido',
+          data: acumulado.map((item) => item.noMedido),
+          backgroundColor: 'rgba(127, 140, 141, 0.4)',
+          borderColor: '#7F8C8D',
+          fill: true,
+        },
+      ],
     });
 
-    // (C) Gráfico de Barras: Estadísticas por Nivel ISM3
-    const nivStats = calculateNivelStats(procesos);
-    const levelArray = Object.values(nivStats);
-    const levelLabels = levelArray.map((item) => item.nombre);
-    const areaCumple = levelArray.map((item) => item.cumple);
-    const areaParcial = levelArray.map((item) => item.cumpleParcial);
-    const areaNoCumple = levelArray.map((item) => item.noCumple);
-    const areaNoMedido = levelArray.map((item) => item.noMedido);
-    setNivelSeries([
-      { name: 'Cumple', data: areaCumple },
-      { name: 'Cumple Parcial', data: areaParcial },
-      { name: 'No Cumple', data: areaNoCumple },
-      { name: 'No Medido', data: areaNoMedido },
-    ]);
-    setNivelOptions({
-      chart: { 
-        type: 'bar', 
-        stacked: true, 
-        toolbar: { show: false },
-        dropShadow: { enabled: true, top: 3, left: 2, blur: 4, opacity: 0.1 }
-      },
-      title: { 
-        text: 'Cumplimiento por Nivel de ISM3', 
-        style: { fontSize: '20px', fontWeight: 'bold' } 
-      },
-      xaxis: { categories: levelLabels, title: { text: 'Nivel', style: { fontSize: '14px' } } },
-      yaxis: { title: { text: 'Cantidad', style: { fontSize: '14px' } } },
-      colors: ['#1ABC9C', '#F39C12', '#E74C3C', '#7F8C8D'],
-      legend: { position: 'bottom', labels: { style: { fontSize: '14px' } } },
-      dataLabels: { enabled: false }
+    // (C) Barras: Estadísticas por Nivel ISM3 (porcentajes)
+    const nivelLabels = nivelStatsData.map((item) => item.nombre || `Nivel ${item.nivel}`);
+    setBarData({
+      labels: nivelLabels,
+      datasets: [
+        {
+          label: 'Cumple',
+          data: nivelStatsData.map((item) => parseFloat(item.pcCumple.replace('%', ''))),
+          backgroundColor: '#1ABC9C',
+        },
+        {
+          label: 'Cumple Parcialmente',
+          data: nivelStatsData.map((item) => parseFloat(item.pcParcial.replace('%', ''))),
+          backgroundColor: '#F39C12',
+        },
+        {
+          label: 'No Cumple',
+          data: nivelStatsData.map((item) => parseFloat(item.pcNoCumple.replace('%', ''))),
+          backgroundColor: '#E74C3C',
+        },
+        {
+          label: 'No Medido',
+          data: nivelStatsData.map((item) => parseFloat(item.pcNoMedido.replace('%', ''))),
+          backgroundColor: '#7F8C8D',
+        },
+      ],
     });
 
-    // (D) Gráfico Pie 3D (disco 3D) para el Último Mes
-    const lastMonth = acumulado[acumulado.length - 1] || { 
-      cumple: 0, 
-      cumpleParcial: 0, 
-      noCumple: 0, 
-      noMedido: 0 
-    };
+    // (D) Pie: Último Mes
+    const lastMonth = acumulado[acumulado.length - 1] || { cumple: 0, cumpleParcial: 0, noCumple: 0, noMedido: 0 };
     const totalLastMonth = lastMonth.cumple + lastMonth.cumpleParcial + lastMonth.noCumple + lastMonth.noMedido || 1;
-    const pieValues = [
-      (lastMonth.cumple / totalLastMonth) * 100,
-      (lastMonth.cumpleParcial / totalLastMonth) * 100,
-      (lastMonth.noCumple / totalLastMonth) * 100,
-      (lastMonth.noMedido / totalLastMonth) * 100,
-    ];
-    setPieSeries(pieValues);
-    setPieOptions({
-      chart: { 
-        type: 'pie', 
-        height: 500,
-        toolbar: { show: false },
-        // DropShadow para simular 3D
-        dropShadow: { enabled: true, top: 5, left: 0, blur: 15, opacity: 0.5 }
-      },
-      title: { 
-        text: 'Estado de Cumplimiento (Último Mes)', 
-        style: { fontSize: '20px', fontWeight: 'bold' } 
-      },
+    setPieData({
       labels: ['Cumple', 'Cumple Parcial', 'No Cumple', 'No Medido'],
-      colors: ['#1ABC9C', '#F39C12', '#E74C3C', '#7F8C8D'],
-      dataLabels: { style: { fontSize: '14px' } },
-      legend: { position: 'bottom', labels: { style: { fontSize: '14px' } } },
-      // Usamos tipo "pie" sin el efecto donut para que luzca como un disco
-      plotOptions: {
-        pie: {
-          expandOnClick: true,
-          offsetX: 0,
-          offsetY: 0,
-          customScale: 1
-        }
-      }
+      datasets: [
+        {
+          data: [
+            (lastMonth.cumple / totalLastMonth) * 100,
+            (lastMonth.cumpleParcial / totalLastMonth) * 100,
+            (lastMonth.noCumple / totalLastMonth) * 100,
+            (lastMonth.noMedido / totalLastMonth) * 100,
+          ],
+          backgroundColor: ['#1ABC9C', '#F39C12', '#E74C3C', '#7F8C8D'],
+          borderColor: '#fff',
+          borderWidth: 2,
+        },
+      ],
     });
   }, [procesos, acumulado, nivelStatsData]);
 
-  if (
-    !radarSeries.length ||
-    !areaSeries.length ||
-    !nivelSeries.length ||
-    !pieSeries.length
-  ) {
-    return <div className="text-center text-lg font-bold">Cargando datos...</div>;
-  }
-
-  // Función para exportar a PDF utilizando html2canvas y jsPDF
+  // Función para exportar 4 páginas, una por cada gráfico
   const exportPDF = () => {
-    if (!containerRef.current) return;
-    html2canvas(containerRef.current, { scale: 2, backgroundColor: '#ffffff' })
-      .then((canvas) => {
-        const imgData = canvas.toDataURL('image/png');
+    if (!radarRef.current || !lineRef.current || !barRef.current || !pieRef.current) return;
+
+    Promise.all([
+      html2canvas(radarRef.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true }),
+      html2canvas(lineRef.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true }),
+      html2canvas(barRef.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true }),
+      html2canvas(pieRef.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true }),
+    ])
+      .then((canvases) => {
         const pdf = new jsPDF('p', 'mm', 'a4');
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = pdf.internal.pageSize.getHeight();
-        const imgProps = pdf.getImageProperties(imgData);
-        const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, imgHeight);
+        canvases.forEach((canvas, index) => {
+          const imgData = canvas.toDataURL('image/png');
+          const pdfWidth = pdf.internal.pageSize.getWidth();
+          const ratio = canvas.height / canvas.width;
+          const imgHeight = pdfWidth * ratio;
+          if (index > 0) {
+            pdf.addPage();
+          }
+          pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, imgHeight);
+        });
         pdf.setFontSize(14);
-        pdf.text('Velasco & Calle', pdfWidth / 2, pdfHeight - 10, { align: 'center' });
+        pdf.text('Velasco & Calle', pdf.internal.pageSize.getWidth() / 2, pdf.internal.pageSize.getHeight() - 10, { align: 'center' });
         pdf.save('reporte_cumplimiento.pdf');
       })
       .catch((err) => {
@@ -295,40 +292,83 @@ const Reportes = () => {
       });
   };
 
+  if (
+    !Object.keys(radarData).length ||
+    !Object.keys(lineData).length ||
+    !Object.keys(barData).length ||
+    !Object.keys(pieData).length
+  ) {
+    return <div className="text-center text-lg font-bold">Cargando datos...</div>;
+  }
+
   return (
-    <div className="p-6 bg-white rounded-lg shadow-md" id="reportContainer" ref={containerRef}>
-      <h2 className="text-2xl font-bold mb-4 text-center">
-        Reporte Estadístico de Cumplimiento
-      </h2>
+    <div style={{ backgroundColor: '#ffffff', color: '#000000' }}>
+      <div className="p-6 bg-white rounded-lg shadow-md" id="reportContainer" ref={containerRef}>
+        <h2 className="text-2xl font-bold mb-4 text-center">
+          Reporte estadístico de cumplimiento
+        </h2>
 
-      {/* Gráfico Radar */}
-      <div className="mb-8">
-        <Chart options={radarOptions} series={radarSeries} type="radar" height="700" />
-      </div>
+        <div className="mb-8" style={{ height: 700 }} ref={radarRef}>
+          <Radar 
+            data={radarData} 
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: { r: { ticks: { beginAtZero: true, max: 100 } } },
+            }} 
+          />
+        </div>
 
-      {/* Gráfico de Área Apilada */}
-      <div className="mb-8">
-        <Chart options={areaOptions} series={areaSeries} type="area" height="500" />
-      </div>
+        <div className="mb-8" style={{ height: 500 }} ref={lineRef}>
+          <Line 
+            data={lineData} 
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { title: { display: true, text: 'Comportamiento por mes acumulado', font: { size: 20 } } },
+              scales: { y: { beginAtZero: true } },
+            }} 
+          />
+        </div>
 
-      {/* Gráfico de Barras (Estadísticas por Nivel ISM3) */}
-      <div className="mb-8">
-        <Chart options={nivelOptions} series={nivelSeries} type="bar" height="500" />
-      </div>
+        <div className="mb-8" style={{ height: 500 }} ref={barRef}>
+          <Bar 
+            data={barData} 
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { title: { display: true, text: 'Cumplimiento por nivel de ISM3', font: { size: 20 } } },
+              scales: { y: { beginAtZero: true, max: 100 } },
+            }} 
+          />
+        </div>
 
-      {/* Gráfico Pie 3D (disco 3D) */}
-      <div className="mb-8">
-        <Chart options={pieOptions} series={pieSeries} type="pie" height="500" />
-      </div>
+        <div className="mb-8" style={{ height: 500 }} ref={pieRef}>
+          <Pie 
+            data={pieData} 
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { title: { display: true, text: 'Estado de cumplimiento (Último Mes)', font: { size: 20 } } },
+            }} 
+          />
+        </div>
 
-      {/* Botón para exportar el reporte a PDF */}
-      <div className="text-center mt-8">
-        <button
-          onClick={exportPDF}
-          className="px-6 py-3 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold"
-        >
-          Descargar Reporte en PDF
-        </button>
+        <div style={{ textAlign: 'center', marginTop: '20px' }}>
+          <button
+            onClick={exportPDF}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: 'blue',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            Descargar reporte en PDF
+          </button>
+        </div>
       </div>
     </div>
   );
