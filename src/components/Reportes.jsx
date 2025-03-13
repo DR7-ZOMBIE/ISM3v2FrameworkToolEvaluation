@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Radar, Bar, Pie, Line, Doughnut, Chart } from 'react-chartjs-2'; // Usamos Chart para gráficos "boxplot" y "violin"
+import { Radar, Bar, Pie, Line, Doughnut, Chart } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -13,18 +13,16 @@ import {
   LineElement,
   ArcElement,
   Filler,
-  // Importa el controlador de scatter
   ScatterController
 } from 'chart.js';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
-// Importa y registra los controladores para boxplot y violin plot
-import { 
-  BoxPlotController, 
-  BoxAndWiskers, 
-  ViolinController, 
-  Violin 
-} from '@sgratzl/chartjs-chart-boxplot';
+import { BoxPlotController, BoxAndWiskers, ViolinController, Violin } from '@sgratzl/chartjs-chart-boxplot';
+import { Container, Typography, Button, Paper, Box, Grid } from '@mui/material';
+import { db, collection, getDocs } from '../firebase-config';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
+// Registro de controladores y plugins
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -38,18 +36,12 @@ ChartJS.register(
   ArcElement,
   Filler,
   ChartDataLabels,
-  // Registra también el ScatterController para los datasets tipo scatter
   ScatterController,
   BoxPlotController,
   BoxAndWiskers,
   ViolinController,
   Violin
 );
-
-import { Container, Typography, Button, Paper, Box, Grid } from '@mui/material';
-import { db, collection, getDocs } from '../firebase-config';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 
 const colors = {
   cumple: 'rgba(26, 188, 156, 0.6)',
@@ -116,13 +108,36 @@ const calculateCategoryStats = (data) => {
   return categoryStats;
 };
 
-// Función para calcular estadísticas para el box plot (min, Q1, mediana, Q3, max)
-// Se usa para crear una "caja degenerate" basada en el valor de "cumple"
-const computeBoxPlotStats = (value) => {
-  return { min: value, q1: value, median: value, q3: value, max: value };
-};
+const computeBoxPlotStats = (value) => ({ min: value, q1: value, median: value, q3: value, max: value });
 
 const Reportes = () => {
+  // Definición de clientes (debes tener los mismos datos que en Evaluación)
+  const clients = [
+    {
+      name: 'Universidad Cooperativa de Colombia',
+      code: 'UCC',
+      collection: 'procesos_UCC',
+    },
+    {
+      name: 'Cajacopi',
+      code: 'CAJACOPI',
+      collection: 'procesos_Cajacopi',
+    },
+    {
+      name: 'Cámara de Comercio de Medellín',
+      code: 'CAMARA',
+      collection: 'procesos_Camara',
+    },
+    {
+      name: 'SisteCrédito',
+      code: 'SISTECREDITO',
+      collection: 'procesos', // La colección original
+    }
+  ];
+  
+  // Estado para el cliente seleccionado (por defecto el primero)
+  const [selectedClient, setSelectedClient] = useState(clients[0]);
+  
   // Refs para exportar a PDF y para cada gráfico
   const radarRef = useRef(null);
   const lineRef = useRef(null);
@@ -135,7 +150,7 @@ const Reportes = () => {
   const boxPlotRef = useRef(null);
   const violinRef = useRef(null);
 
-  // Estados para los gráficos
+  // Estados para los datos de gráficos
   const [radarData, setRadarData] = useState({});
   const [lineData, setLineData] = useState({});
   const [barData, setBarData] = useState({});
@@ -148,297 +163,294 @@ const Reportes = () => {
   const [combinedViolinData, setCombinedViolinData] = useState({});
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchAndProcessData = async () => {
-      try {
-        const procesos = await fetchDocumentsFromFirestore('procesos');
-        const acumulado = await fetchDocumentsFromFirestore('acumulado');
-        const nivelStatsData = await fetchDocumentsFromFirestore('nivelStats');
+  const fetchAndProcessData = async () => {
+    try {
+      // Usamos la colección del cliente seleccionado
+      let procesos = await fetchDocumentsFromFirestore(selectedClient.collection);
+      // Si la colección está vacía (y no es SisteCrédito), usamos la data de 'procesos'
+      if (procesos.length === 0 && selectedClient.collection !== 'procesos') {
+        procesos = await fetchDocumentsFromFirestore('procesos');
+      }
+      const acumulado = await fetchDocumentsFromFirestore('acumulado');
+      const nivelStatsData = await fetchDocumentsFromFirestore('nivelStats');
 
-        // Estadísticas por Categoría (para radar, barras, etc.)
-        const catStats = calculateCategoryStats(procesos);
-        const catKeysAll = Object.keys(catStats);
-        const catKeysFiltered = catKeysAll.filter(key => {
-          const s = catStats[key];
-          return (s.cumple + s.cumpleParcial + s.noCumple + s.noMedido) > 0;
-        });
+      // Estadísticas por Categoría (Radar, barras, etc.)
+      const catStats = calculateCategoryStats(procesos);
+      const catKeysAll = Object.keys(catStats);
+      const catKeysFiltered = catKeysAll.filter(key => {
+        const s = catStats[key];
+        return (s.cumple + s.cumpleParcial + s.noCumple + s.noMedido) > 0;
+      });
 
-        // Radar: % de "Cumple" por Categoría
-        const radarValues = catKeysFiltered.map(key => {
-          const s = catStats[key];
-          const total = s.cumple + s.cumpleParcial + s.noCumple + s.noMedido;
-          const val = total > 0 ? Math.round((s.cumple / total) * 100) : 0;
-          return val === 0 ? null : val;
-        });
-        const radarDataset = {
-          label: 'Cumple',
-          data: radarValues,
-          backgroundColor: colors.cumple.replace('0.6', '0.3'),
-          borderColor: colors.cumpleBorder,
+      // Radar: % de "Cumple" por Categoría
+      const radarValues = catKeysFiltered.map(key => {
+        const s = catStats[key];
+        const total = s.cumple + s.cumpleParcial + s.noCumple + s.noMedido;
+        const val = total > 0 ? Math.round((s.cumple / total) * 100) : 0;
+        return val === 0 ? null : val;
+      });
+      const radarDataset = {
+        label: 'Cumple',
+        data: radarValues,
+        backgroundColor: colors.cumple.replace('0.6', '0.3'),
+        borderColor: colors.cumpleBorder,
+        borderWidth: 2,
+        pointBackgroundColor: colors.cumpleBorder,
+        pointRadius: 4,
+      };
+      setRadarData({
+        labels: catKeysFiltered.map(key => catStats[key].nombre.toUpperCase()),
+        datasets: [radarDataset],
+      });
+
+      // Línea: Evolución Mensual Acumulada (Área Apilada)
+      const labelsLine = acumulado.map(item => item.mes);
+      const lineStates = [
+        { label: 'Cumple', field: 'cumple', backgroundColor: colors.cumple, borderColor: colors.cumpleBorder },
+        { label: 'Cumple Parcial', field: 'cumpleParcial', backgroundColor: colors.parcial, borderColor: colors.parcialBorder },
+        { label: 'No Cumple', field: 'noCumple', backgroundColor: colors.noCumple, borderColor: colors.noCumpleBorder },
+        { label: 'No Medido', field: 'noMedido', backgroundColor: colors.noMedido, borderColor: colors.noMedidoBorder }
+      ];
+      const filteredLineDatasets = lineStates.map(st => {
+        const data = acumulado.map(item => item[st.field]);
+        if (data.every(val => val === 0)) return null;
+        return {
+          label: st.label,
+          data,
+          backgroundColor: st.backgroundColor,
+          borderColor: st.borderColor,
           borderWidth: 2,
-          pointBackgroundColor: colors.cumpleBorder,
+          fill: true,
+          tension: 0.4,
           pointRadius: 4,
         };
-        setRadarData({
-          labels: catKeysFiltered.map(key => catStats[key].nombre.toUpperCase()),
-          datasets: [radarDataset],
-        });
+      }).filter(ds => ds !== null);
+      setLineData({ labels: labelsLine, datasets: filteredLineDatasets });
+      setStackedLineData({ labels: labelsLine, datasets: filteredLineDatasets });
 
-        // Línea: Evolución Mensual Acumulada (Área Apilada)
-        const labelsLine = acumulado.map(item => item.mes);
-        const lineStates = [
-          { label: 'Cumple', field: 'cumple', backgroundColor: colors.cumple, borderColor: colors.cumpleBorder },
-          { label: 'Cumple Parcial', field: 'cumpleParcial', backgroundColor: colors.parcial, borderColor: colors.parcialBorder },
-          { label: 'No Cumple', field: 'noCumple', backgroundColor: colors.noCumple, borderColor: colors.noCumpleBorder },
-          { label: 'No Medido', field: 'noMedido', backgroundColor: colors.noMedido, borderColor: colors.noMedidoBorder }
-        ];
-        const filteredLineDatasets = lineStates.map(st => {
-          const data = acumulado.map(item => item[st.field]);
-          if (data.every(val => val === 0)) return null;
-          return {
-            label: st.label,
-            data,
-            backgroundColor: st.backgroundColor,
-            borderColor: st.borderColor,
-            borderWidth: 2,
-            fill: true,
-            tension: 0.4,
-            pointRadius: 4,
-          };
-        }).filter(ds => ds !== null);
-        setLineData({ labels: labelsLine, datasets: filteredLineDatasets });
-        setStackedLineData({ labels: labelsLine, datasets: filteredLineDatasets });
-
-        // Barras: Estadísticas por Nivel ISM3 (porcentajes)
-        const nivelLabels = nivelStatsData.map(item => item.nombre || `Nivel ${item.nivel}`);
-        const barStates = [
-          { label: 'Cumple', field: 'pcCumple', backgroundColor: colors.cumple, borderColor: colors.cumpleBorder },
-          { label: 'Cumple Parcial', field: 'pcParcial', backgroundColor: colors.parcial, borderColor: colors.parcialBorder },
-          { label: 'No Cumple', field: 'pcNoCumple', backgroundColor: colors.noCumple, borderColor: colors.noCumpleBorder },
-          { label: 'No Medido', field: 'pcNoMedido', backgroundColor: colors.noMedido, borderColor: colors.noMedidoBorder }
-        ];
-        const filteredBarDatasets = barStates.map(st => {
-          const data = nivelStatsData.map(item => parseFloat(item[st.field].replace('%', '')));
-          if (data.every(val => val === 0)) return null;
-          return {
-            label: st.label,
-            data,
-            backgroundColor: st.backgroundColor,
-            borderColor: st.borderColor,
-            borderWidth: 1,
-          };
-        }).filter(ds => ds !== null);
-        setBarData({ labels: nivelLabels, datasets: filteredBarDatasets });
-
-        // Pie: Estado de Cumplimiento del Último Mes
-        const lastMonth = acumulado[acumulado.length - 1] || { cumple: 0, cumpleParcial: 0, noCumple: 0, noMedido: 0 };
-        const totalLastMonth = lastMonth.cumple + lastMonth.cumpleParcial + lastMonth.noCumple + lastMonth.noMedido || 1;
-        const rawPieData = [
-          Math.round((lastMonth.cumple / totalLastMonth) * 100),
-          Math.round((lastMonth.cumpleParcial / totalLastMonth) * 100),
-          Math.round((lastMonth.noCumple / totalLastMonth) * 100),
-          Math.round((lastMonth.noMedido / totalLastMonth) * 100),
-        ];
-        const pieBaseLabels = ['Cumple', 'Cumple Parcial', 'No Cumple', 'No Medido'];
-        const pieDataFiltered = [];
-        const pieLabelsFiltered = [];
-        const pieColorsFiltered = [];
-        rawPieData.forEach((value, i) => {
-          if (value > 0) {
-            pieLabelsFiltered.push(pieBaseLabels[i]);
-            pieDataFiltered.push(value);
-            if (i === 0) pieColorsFiltered.push(colors.cumple);
-            if (i === 1) pieColorsFiltered.push(colors.parcial);
-            if (i === 2) pieColorsFiltered.push(colors.noCumple);
-            if (i === 3) pieColorsFiltered.push(colors.noMedido);
-          }
-        });
-        setPieData({
-          labels: pieLabelsFiltered,
-          datasets: [{
-            data: pieDataFiltered,
-            backgroundColor: pieColorsFiltered,
-            borderColor: '#fff',
-            borderWidth: 2,
-          }],
-        });
-
-        // Grouped Bar Chart: Estadísticas por Categoría (conteo absoluto)
-        const groupedStates = [
-          { label: 'Cumple', field: 'cumple', backgroundColor: colors.cumple, borderColor: colors.cumpleBorder },
-          { label: 'Cumple Parcial', field: 'cumpleParcial', backgroundColor: colors.parcial, borderColor: colors.parcialBorder },
-          { label: 'No Cumple', field: 'noCumple', backgroundColor: colors.noCumple, borderColor: colors.noCumpleBorder },
-          { label: 'No Medido', field: 'noMedido', backgroundColor: colors.noMedido, borderColor: colors.noMedidoBorder },
-        ];
-        const filteredGroupedDatasets = groupedStates.map(st => {
-          const data = catKeysFiltered.map(key => {
-            const val = catStats[key][st.field];
-            return val === 0 ? null : val;
-          });
-          if (data.every(value => value === null)) return null;
-          return {
-            label: st.label,
-            data,
-            backgroundColor: st.backgroundColor,
-            borderColor: st.borderColor,
-            borderWidth: 1,
-          };
-        }).filter(ds => ds !== null);
-        setGroupedCategoryData({
-          labels: catKeysFiltered.map(key => catStats[key].nombre.toUpperCase()),
-          datasets: filteredGroupedDatasets,
-        });
-
-        // Donut Chart: Global Acumulado
-        let totalCumple = 0, totalCumpleParcial = 0, totalNoCumple = 0, totalNoMedido = 0;
-        acumulado.forEach(item => {
-          totalCumple += item.cumple;
-          totalCumpleParcial += item.cumpleParcial;
-          totalNoCumple += item.noCumple;
-          totalNoMedido += item.noMedido;
-        });
-        const totalOverall = totalCumple + totalCumpleParcial + totalNoCumple + totalNoMedido;
-        const rawDonutData = [
-          Math.round((totalCumple / totalOverall) * 100),
-          Math.round((totalCumpleParcial / totalOverall) * 100),
-          Math.round((totalNoCumple / totalOverall) * 100),
-          Math.round((totalNoMedido / totalOverall) * 100),
-        ];
-        const donutBaseLabels = ['Cumple', 'Cumple Parcial', 'No Cumple', 'No Medido'];
-        const donutDataFiltered = [];
-        const donutLabelsFiltered = [];
-        const donutColorsFiltered = [];
-        rawDonutData.forEach((value, i) => {
-          if (value > 0) {
-            donutLabelsFiltered.push(donutBaseLabels[i]);
-            donutDataFiltered.push(value);
-            if (i === 0) donutColorsFiltered.push(colors.cumple);
-            if (i === 1) donutColorsFiltered.push(colors.parcial);
-            if (i === 2) donutColorsFiltered.push(colors.noCumple);
-            if (i === 3) donutColorsFiltered.push(colors.noMedido);
-          }
-        });
-        setDonutOverallData({
-          labels: donutLabelsFiltered,
-          datasets: [{
-            data: donutDataFiltered,
-            backgroundColor: donutColorsFiltered,
-            borderColor: '#fff',
-            borderWidth: 2,
-          }],
-        });
-
-        // Gauge Chart: Indicador de Cumplimiento Global
-        const overallPctCumple = Math.round((totalCumple / totalOverall) * 100);
-        setGaugeData({
-          labels: ['Cumple', 'Restante'],
-          datasets: [{
-            data: [overallPctCumple, 100 - overallPctCumple],
-            backgroundColor: [colors.cumple, "#e0e0e0"],
-            borderWidth: 0,
-          }],
-        });
-
-        // --- Gráficos Combinados para Box Plot y Violin Plot ---
-        // Para cada mes se crea una "caja" degenerate basada en 'cumple'
-        // Y se definen datasets de tipo scatter para los otros estados con un punto más grande.
-        const labels = acumulado.map(item => item.mes);
-        const boxData = acumulado.map(item => {
-          const v = item.cumple;
-          return computeBoxPlotStats(v);
-        });
-        const scatterCumpleParcial = acumulado.map(item => ({ x: item.mes, y: item.cumpleParcial }));
-        const scatterNoCumple = acumulado.map(item => ({ x: item.mes, y: item.noCumple }));
-        const scatterNoMedido = acumulado.map(item => ({ x: item.mes, y: item.noMedido }));
-        
-        const combinedBoxPlotData = {
-          labels,
-          datasets: [
-            {
-              type: 'boxplot',
-              label: 'Cumple',
-              data: boxData,
-              backgroundColor: colors.cumple.replace('0.6', '0.3'),
-              borderColor: colors.cumpleBorder,
-              borderWidth: 1,
-            },
-            {
-              type: 'scatter',
-              label: 'Cumple Parcial',
-              data: scatterCumpleParcial,
-              backgroundColor: colors.parcial,
-              borderColor: colors.parcialBorder,
-              pointRadius: 10, // Aumentamos el tamaño a 10
-            },
-            {
-              type: 'scatter',
-              label: 'No Cumple',
-              data: scatterNoCumple,
-              backgroundColor: colors.noCumple,
-              borderColor: colors.noCumpleBorder,
-              pointRadius: 10, // Aumentamos el tamaño a 10
-            },
-            {
-              type: 'scatter',
-              label: 'No Medido',
-              data: scatterNoMedido,
-              backgroundColor: colors.noMedido,
-              borderColor: colors.noMedidoBorder,
-              pointRadius: 10, // Aumentamos el tamaño a 10
-            },
-          ]
+      // Barras: Estadísticas por Nivel ISM3
+      const nivelLabels = nivelStatsData.map(item => item.nombre || `Nivel ${item.nivel}`);
+      const barStates = [
+        { label: 'Cumple', field: 'pcCumple', backgroundColor: colors.cumple, borderColor: colors.cumpleBorder },
+        { label: 'Cumple Parcial', field: 'pcParcial', backgroundColor: colors.parcial, borderColor: colors.parcialBorder },
+        { label: 'No Cumple', field: 'pcNoCumple', backgroundColor: colors.noCumple, borderColor: colors.noCumpleBorder },
+        { label: 'No Medido', field: 'pcNoMedido', backgroundColor: colors.noMedido, borderColor: colors.noMedidoBorder }
+      ];
+      const filteredBarDatasets = barStates.map(st => {
+        const data = nivelStatsData.map(item => parseFloat(item[st.field].replace('%', '')));
+        if (data.every(val => val === 0)) return null;
+        return {
+          label: st.label,
+          data,
+          backgroundColor: st.backgroundColor,
+          borderColor: st.borderColor,
+          borderWidth: 1,
         };
+      }).filter(ds => ds !== null);
+      setBarData({ labels: nivelLabels, datasets: filteredBarDatasets });
 
-        const combinedViolinData = {
-          labels,
-          datasets: [
-            {
-              type: 'violin',
-              label: 'Cumple',
-              data: boxData,
-              backgroundColor: colors.cumple.replace('0.6', '0.3'),
-              borderColor: colors.cumpleBorder,
-              borderWidth: 1,
-            },
-            {
-              type: 'scatter',
-              label: 'Cumple Parcial',
-              data: scatterCumpleParcial,
-              backgroundColor: colors.parcial,
-              borderColor: colors.parcialBorder,
-              pointRadius: 10,
-            },
-            {
-              type: 'scatter',
-              label: 'No Cumple',
-              data: scatterNoCumple,
-              backgroundColor: colors.noCumple,
-              borderColor: colors.noCumpleBorder,
-              pointRadius: 10,
-            },
-            {
-              type: 'scatter',
-              label: 'No Medido',
-              data: scatterNoMedido,
-              backgroundColor: colors.noMedido,
-              borderColor: colors.noMedidoBorder,
-              pointRadius: 10,
-            },
-          ]
+      // Pie: Estado de Cumplimiento del Último Mes
+      const lastMonth = acumulado[acumulado.length - 1] || { cumple: 0, cumpleParcial: 0, noCumple: 0, noMedido: 0 };
+      const totalLastMonth = lastMonth.cumple + lastMonth.cumpleParcial + lastMonth.noCumple + lastMonth.noMedido || 1;
+      const rawPieData = [
+        Math.round((lastMonth.cumple / totalLastMonth) * 100),
+        Math.round((lastMonth.cumpleParcial / totalLastMonth) * 100),
+        Math.round((lastMonth.noCumple / totalLastMonth) * 100),
+        Math.round((lastMonth.noMedido / totalLastMonth) * 100),
+      ];
+      const pieBaseLabels = ['Cumple', 'Cumple Parcial', 'No Cumple', 'No Medido'];
+      const pieDataFiltered = [];
+      const pieLabelsFiltered = [];
+      const pieColorsFiltered = [];
+      rawPieData.forEach((value, i) => {
+        if (value > 0) {
+          pieLabelsFiltered.push(pieBaseLabels[i]);
+          pieDataFiltered.push(value);
+          if (i === 0) pieColorsFiltered.push(colors.cumple);
+          if (i === 1) pieColorsFiltered.push(colors.parcial);
+          if (i === 2) pieColorsFiltered.push(colors.noCumple);
+          if (i === 3) pieColorsFiltered.push(colors.noMedido);
+        }
+      });
+      setPieData({
+        labels: pieLabelsFiltered,
+        datasets: [{
+          data: pieDataFiltered,
+          backgroundColor: pieColorsFiltered,
+          borderColor: '#fff',
+          borderWidth: 2,
+        }],
+      });
+
+      // Grouped Bar Chart: Estadísticas por Categoría (Conteo)
+      const groupedStates = [
+        { label: 'Cumple', field: 'cumple', backgroundColor: colors.cumple, borderColor: colors.cumpleBorder },
+        { label: 'Cumple Parcial', field: 'cumpleParcial', backgroundColor: colors.parcial, borderColor: colors.parcialBorder },
+        { label: 'No Cumple', field: 'noCumple', backgroundColor: colors.noCumple, borderColor: colors.noCumpleBorder },
+        { label: 'No Medido', field: 'noMedido', backgroundColor: colors.noMedido, borderColor: colors.noMedidoBorder },
+      ];
+      const filteredGroupedDatasets = groupedStates.map(st => {
+        const data = catKeysFiltered.map(key => {
+          const val = catStats[key][st.field];
+          return val === 0 ? null : val;
+        });
+        if (data.every(value => value === null)) return null;
+        return {
+          label: st.label,
+          data,
+          backgroundColor: st.backgroundColor,
+          borderColor: st.borderColor,
+          borderWidth: 1,
         };
+      }).filter(ds => ds !== null);
+      setGroupedCategoryData({
+        labels: catKeysFiltered.map(key => catStats[key].nombre.toUpperCase()),
+        datasets: filteredGroupedDatasets,
+      });
 
-        setCombinedBoxPlotData(combinedBoxPlotData);
-        setCombinedViolinData(combinedViolinData);
+      // Donut Chart: Global Acumulado
+      let totalCumple = 0, totalCumpleParcial = 0, totalNoCumple = 0, totalNoMedido = 0;
+      acumulado.forEach(item => {
+        totalCumple += item.cumple;
+        totalCumpleParcial += item.cumpleParcial;
+        totalNoCumple += item.noCumple;
+        totalNoMedido += item.noMedido;
+      });
+      const totalOverall = totalCumple + totalCumpleParcial + totalNoCumple + totalNoMedido;
+      const rawDonutData = [
+        Math.round((totalCumple / totalOverall) * 100),
+        Math.round((totalCumpleParcial / totalOverall) * 100),
+        Math.round((totalNoCumple / totalOverall) * 100),
+        Math.round((totalNoMedido / totalOverall) * 100),
+      ];
+      const donutBaseLabels = ['Cumple', 'Cumple Parcial', 'No Cumple', 'No Medido'];
+      const donutDataFiltered = [];
+      const donutLabelsFiltered = [];
+      const donutColorsFiltered = [];
+      rawDonutData.forEach((value, i) => {
+        if (value > 0) {
+          donutLabelsFiltered.push(donutBaseLabels[i]);
+          donutDataFiltered.push(value);
+          if (i === 0) donutColorsFiltered.push(colors.cumple);
+          if (i === 1) donutColorsFiltered.push(colors.parcial);
+          if (i === 2) donutColorsFiltered.push(colors.noCumple);
+          if (i === 3) donutColorsFiltered.push(colors.noMedido);
+        }
+      });
+      setDonutOverallData({
+        labels: donutLabelsFiltered,
+        datasets: [{
+          data: donutDataFiltered,
+          backgroundColor: donutColorsFiltered,
+          borderColor: '#fff',
+          borderWidth: 2,
+        }],
+      });
 
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        setLoading(false);
-      }
-    };
+      // Gauge Chart: Indicador global de cumplimiento
+      const overallPctCumple = Math.round((totalCumple / totalOverall) * 100);
+      setGaugeData({
+        labels: ['Cumple', 'Restante'],
+        datasets: [{
+          data: [overallPctCumple, 100 - overallPctCumple],
+          backgroundColor: [colors.cumple, "#e0e0e0"],
+          borderWidth: 0,
+        }],
+      });
 
+      // Box Plot y Violin Plot
+      const labels = acumulado.map(item => item.mes);
+      const boxData = acumulado.map(item => computeBoxPlotStats(item.cumple));
+      const scatterCumpleParcial = acumulado.map(item => ({ x: item.mes, y: item.cumpleParcial }));
+      const scatterNoCumple = acumulado.map(item => ({ x: item.mes, y: item.noCumple }));
+      const scatterNoMedido = acumulado.map(item => ({ x: item.mes, y: item.noMedido }));
+
+      setCombinedBoxPlotData({
+        labels,
+        datasets: [
+          {
+            type: 'boxplot',
+            label: 'Cumple',
+            data: boxData,
+            backgroundColor: colors.cumple.replace('0.6', '0.3'),
+            borderColor: colors.cumpleBorder,
+            borderWidth: 1,
+          },
+          {
+            type: 'scatter',
+            label: 'Cumple Parcial',
+            data: scatterCumpleParcial,
+            backgroundColor: colors.parcial,
+            borderColor: colors.parcialBorder,
+            pointRadius: 10,
+          },
+          {
+            type: 'scatter',
+            label: 'No Cumple',
+            data: scatterNoCumple,
+            backgroundColor: colors.noCumple,
+            borderColor: colors.noCumpleBorder,
+            pointRadius: 10,
+          },
+          {
+            type: 'scatter',
+            label: 'No Medido',
+            data: scatterNoMedido,
+            backgroundColor: colors.noMedido,
+            borderColor: colors.noMedidoBorder,
+            pointRadius: 10,
+          },
+        ]
+      });
+
+      setCombinedViolinData({
+        labels,
+        datasets: [
+          {
+            type: 'violin',
+            label: 'Cumple',
+            data: boxData,
+            backgroundColor: colors.cumple.replace('0.6', '0.3'),
+            borderColor: colors.cumpleBorder,
+            borderWidth: 1,
+          },
+          {
+            type: 'scatter',
+            label: 'Cumple Parcial',
+            data: scatterCumpleParcial,
+            backgroundColor: colors.parcial,
+            borderColor: colors.parcialBorder,
+            pointRadius: 10,
+          },
+          {
+            type: 'scatter',
+            label: 'No Cumple',
+            data: scatterNoCumple,
+            backgroundColor: colors.noCumple,
+            borderColor: colors.noCumpleBorder,
+            pointRadius: 10,
+          },
+          {
+            type: 'scatter',
+            label: 'No Medido',
+            data: scatterNoMedido,
+            backgroundColor: colors.noMedido,
+            borderColor: colors.noMedidoBorder,
+            pointRadius: 10,
+          },
+        ]
+      });
+
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchAndProcessData();
-  }, []);
+  }, [selectedClient]);
 
   const exportPDF = () => {
     const refs = [radarRef, lineRef, barRef, pieRef, stackedRef, groupedRef, donutRef, gaugeRef, boxPlotRef, violinRef];
@@ -475,13 +487,30 @@ const Reportes = () => {
 
   return (
     <Container maxWidth="lg" sx={{ backgroundColor: '#f7f7f7', color: '#333', py: 4 }}>
+      {/* Selección de Cliente */}
+      <Box mb={4} display="flex" alignItems="center">
+        <Typography variant="h6" sx={{ mr: 2, fontWeight: 'bold' }}>Cliente:</Typography>
+        <select
+          value={selectedClient.code}
+          onChange={(e) => {
+            const client = clients.find(c => c.code === e.target.value);
+            setSelectedClient(client);
+          }}
+          style={{ padding: '8px', fontSize: '16px', borderRadius: '4px', border: '1px solid #ccc' }}
+        >
+          {clients.map(client => (
+            <option key={client.code} value={client.code}>{client.name}</option>
+          ))}
+        </select>
+      </Box>
       <Typography variant="h5" align="center" gutterBottom sx={{ fontWeight: 'bold', mb: 4 }}>
         Reporte de cumplimiento
       </Typography>
       <Grid container spacing={4} justifyContent="center">
+        {/* Aquí se renderizan los gráficos (Radar, Line, Bar, Pie, etc.) */}
         {/* (A) Radar */}
         <Grid item xs={12} md={6}>
-          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={radarRef}>
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} ref={radarRef}>
             <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               % por categoría (Radar)
             </Typography>
@@ -509,7 +538,7 @@ const Reportes = () => {
         </Grid>
         {/* (B) Stacked Area Chart */}
         <Grid item xs={12} md={6}>
-          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={stackedRef}>
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} ref={stackedRef}>
             <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Evolución mensual (Área Apilada)
             </Typography>
@@ -533,7 +562,7 @@ const Reportes = () => {
         </Grid>
         {/* (C) Grouped Bar Chart */}
         <Grid item xs={12} md={6}>
-          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={groupedRef}>
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} ref={groupedRef}>
             <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Estadísticas por categoría (Conteo)
             </Typography>
@@ -557,7 +586,7 @@ const Reportes = () => {
         </Grid>
         {/* (D) Línea: Evolución Mensual Acumulada */}
         <Grid item xs={12} md={6}>
-          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={lineRef}>
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} ref={lineRef}>
             <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Evolución mensual acumulado
             </Typography>
@@ -581,7 +610,7 @@ const Reportes = () => {
         </Grid>
         {/* (E) Barras: Nivel ISM3 */}
         <Grid item xs={12} md={6}>
-          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={barRef}>
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} ref={barRef}>
             <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Cumplimiento por nivel ISM3
             </Typography>
@@ -605,7 +634,7 @@ const Reportes = () => {
         </Grid>
         {/* (F) Donut Chart: Global Acumulado */}
         <Grid item xs={12} md={6}>
-          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={donutRef}>
+          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%' }} ref={donutRef}>
             <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Global acumulado (Donut)
             </Typography>
@@ -626,7 +655,7 @@ const Reportes = () => {
         </Grid>
         {/* (G) Gauge Chart: Indicador Global de Cumplimiento */}
         <Grid item xs={12} md={6}>
-          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={gaugeRef}>
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} ref={gaugeRef}>
             <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Indicador global de cumplimiento
             </Typography>
@@ -664,7 +693,7 @@ const Reportes = () => {
         </Grid>
         {/* (H) Pie: Último Mes */}
         <Grid item xs={12} md={6}>
-          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={pieRef}>
+          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%' }} ref={pieRef}>
             <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Estado de cumplimiento (Último Mes)
             </Typography>
@@ -682,9 +711,9 @@ const Reportes = () => {
             />
           </Paper>
         </Grid>
-        {/* (I) Gráfico combinado Box Plot */}
+        {/* (I) Box Plot */}
         <Grid item xs={12} md={6}>
-          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={boxPlotRef}>
+          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%' }} ref={boxPlotRef}>
             <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Evolución mensual (Box Plot)
             </Typography>
@@ -703,9 +732,9 @@ const Reportes = () => {
             />
           </Paper>
         </Grid>
-        {/* (J) Gráfico combinado Violin Plot */}
+        {/* (J) Violin Plot */}
         <Grid item xs={12} md={6}>
-          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={violinRef}>
+          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%' }} ref={violinRef}>
             <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Evolución mensual (Violin Plot)
             </Typography>
