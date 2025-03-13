@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Radar, Bar, Pie, Line } from 'react-chartjs-2';
+import { Radar, Bar, Pie, Line, Doughnut, Chart } from 'react-chartjs-2'; // Usamos Chart para gráficos "boxplot" y "violin"
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -13,13 +13,18 @@ import {
   LineElement,
   ArcElement,
   Filler,
+  // Importa el controlador de scatter
+  ScatterController
 } from 'chart.js';
-import { Container, Typography, Button, Paper, Box } from '@mui/material';
-import { db, collection, getDocs } from '../firebase-config';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
+import ChartDataLabels from 'chartjs-plugin-datalabels';
+// Importa y registra los controladores para boxplot y violin plot
+import { 
+  BoxPlotController, 
+  BoxAndWiskers, 
+  ViolinController, 
+  Violin 
+} from '@sgratzl/chartjs-chart-boxplot';
 
-// Registrar componentes y plugins en Chart.js
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -31,8 +36,20 @@ ChartJS.register(
   PointElement,
   LineElement,
   ArcElement,
-  Filler
+  Filler,
+  ChartDataLabels,
+  // Registra también el ScatterController para los datasets tipo scatter
+  ScatterController,
+  BoxPlotController,
+  BoxAndWiskers,
+  ViolinController,
+  Violin
 );
+
+import { Container, Typography, Button, Paper, Box, Grid } from '@mui/material';
+import { db, collection, getDocs } from '../firebase-config';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 const colors = {
   cumple: 'rgba(26, 188, 156, 0.6)',
@@ -99,167 +116,319 @@ const calculateCategoryStats = (data) => {
   return categoryStats;
 };
 
+// Función para calcular estadísticas para el box plot (min, Q1, mediana, Q3, max)
+// Se usa para crear una "caja degenerate" basada en el valor de "cumple"
+const computeBoxPlotStats = (value) => {
+  return { min: value, q1: value, median: value, q3: value, max: value };
+};
+
 const Reportes = () => {
+  // Refs para exportar a PDF y para cada gráfico
   const radarRef = useRef(null);
   const lineRef = useRef(null);
   const barRef = useRef(null);
   const pieRef = useRef(null);
+  const stackedRef = useRef(null);
+  const groupedRef = useRef(null);
+  const donutRef = useRef(null);
+  const gaugeRef = useRef(null);
+  const boxPlotRef = useRef(null);
+  const violinRef = useRef(null);
 
-  // Estados para los datos
+  // Estados para los gráficos
   const [radarData, setRadarData] = useState({});
   const [lineData, setLineData] = useState({});
   const [barData, setBarData] = useState({});
   const [pieData, setPieData] = useState({});
+  const [stackedLineData, setStackedLineData] = useState({});
+  const [groupedCategoryData, setGroupedCategoryData] = useState({});
+  const [donutOverallData, setDonutOverallData] = useState({});
+  const [gaugeData, setGaugeData] = useState({});
+  const [combinedBoxPlotData, setCombinedBoxPlotData] = useState({});
+  const [combinedViolinData, setCombinedViolinData] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchAndProcessData = async () => {
       try {
-        // Realiza el fetching de datos
         const procesos = await fetchDocumentsFromFirestore('procesos');
         const acumulado = await fetchDocumentsFromFirestore('acumulado');
         const nivelStatsData = await fetchDocumentsFromFirestore('nivelStats');
 
-        // (A) Radar: % Cumple por Categoría
+        // Estadísticas por Categoría (para radar, barras, etc.)
         const catStats = calculateCategoryStats(procesos);
-        const catKeys = Object.keys(catStats);
-        const labelsRadar = catKeys.map((key) => catStats[key].nombre.toUpperCase());
-        const dataRadar = catKeys.map((key) => {
+        const catKeysAll = Object.keys(catStats);
+        const catKeysFiltered = catKeysAll.filter(key => {
           const s = catStats[key];
-          const total = s.cumple + s.cumpleParcial + s.noCumple + s.noMedido || 1;
-          return Math.round((s.cumple / total) * 100);
+          return (s.cumple + s.cumpleParcial + s.noCumple + s.noMedido) > 0;
         });
 
-        // (B) Línea: Acumulado por Mes
-        const labelsLine = acumulado.map((item) => item.mes);
-        const lineDatasets = [
-          {
-            label: 'Cumple',
-            data: acumulado.map((item) => item.cumple),
-            backgroundColor: colors.cumple,
-            borderColor: colors.cumpleBorder,
-            borderWidth: 2,
-            fill: true,
-            tension: 0.4,
-            pointRadius: 4,
-          },
-          {
-            label: 'Cumple Parcial',
-            data: acumulado.map((item) => item.cumpleParcial),
-            backgroundColor: colors.parcial,
-            borderColor: colors.parcialBorder,
-            borderWidth: 2,
-            fill: true,
-            tension: 0.4,
-            pointRadius: 4,
-          },
-          {
-            label: 'No Cumple',
-            data: acumulado.map((item) => item.noCumple),
-            backgroundColor: colors.noCumple,
-            borderColor: colors.noCumpleBorder,
-            borderWidth: 2,
-            fill: true,
-            tension: 0.4,
-            pointRadius: 4,
-          },
-          {
-            label: 'No Medido',
-            data: acumulado.map((item) => item.noMedido),
-            backgroundColor: colors.noMedido,
-            borderColor: colors.noMedidoBorder,
-            borderWidth: 2,
-            fill: true,
-            tension: 0.4,
-            pointRadius: 4,
-          },
-        ];
+        // Radar: % de "Cumple" por Categoría
+        const radarValues = catKeysFiltered.map(key => {
+          const s = catStats[key];
+          const total = s.cumple + s.cumpleParcial + s.noCumple + s.noMedido;
+          const val = total > 0 ? Math.round((s.cumple / total) * 100) : 0;
+          return val === 0 ? null : val;
+        });
+        const radarDataset = {
+          label: 'Cumple',
+          data: radarValues,
+          backgroundColor: colors.cumple.replace('0.6', '0.3'),
+          borderColor: colors.cumpleBorder,
+          borderWidth: 2,
+          pointBackgroundColor: colors.cumpleBorder,
+          pointRadius: 4,
+        };
+        setRadarData({
+          labels: catKeysFiltered.map(key => catStats[key].nombre.toUpperCase()),
+          datasets: [radarDataset],
+        });
 
-        // (C) Barras: Estadísticas por Nivel ISM3 (porcentajes)
-        const nivelLabels = nivelStatsData.map((item) => item.nombre || `Nivel ${item.nivel}`);
-        const barDatasets = [
-          {
-            label: 'Cumple',
-            data: nivelStatsData.map((item) => parseFloat(item.pcCumple.replace('%', ''))),
-            backgroundColor: colors.cumple,
-            borderColor: colors.cumpleBorder,
-            borderWidth: 1,
-          },
-          {
-            label: 'Cumple Parcialmente',
-            data: nivelStatsData.map((item) => parseFloat(item.pcParcial.replace('%', ''))),
-            backgroundColor: colors.parcial,
-            borderColor: colors.parcialBorder,
-            borderWidth: 1,
-          },
-          {
-            label: 'No Cumple',
-            data: nivelStatsData.map((item) => parseFloat(item.pcNoCumple.replace('%', ''))),
-            backgroundColor: colors.noCumple,
-            borderColor: colors.noCumpleBorder,
-            borderWidth: 1,
-          },
-          {
-            label: 'No Medido',
-            data: nivelStatsData.map((item) => parseFloat(item.pcNoMedido.replace('%', ''))),
-            backgroundColor: colors.noMedido,
-            borderColor: colors.noMedidoBorder,
-            borderWidth: 1,
-          },
+        // Línea: Evolución Mensual Acumulada (Área Apilada)
+        const labelsLine = acumulado.map(item => item.mes);
+        const lineStates = [
+          { label: 'Cumple', field: 'cumple', backgroundColor: colors.cumple, borderColor: colors.cumpleBorder },
+          { label: 'Cumple Parcial', field: 'cumpleParcial', backgroundColor: colors.parcial, borderColor: colors.parcialBorder },
+          { label: 'No Cumple', field: 'noCumple', backgroundColor: colors.noCumple, borderColor: colors.noCumpleBorder },
+          { label: 'No Medido', field: 'noMedido', backgroundColor: colors.noMedido, borderColor: colors.noMedidoBorder }
         ];
+        const filteredLineDatasets = lineStates.map(st => {
+          const data = acumulado.map(item => item[st.field]);
+          if (data.every(val => val === 0)) return null;
+          return {
+            label: st.label,
+            data,
+            backgroundColor: st.backgroundColor,
+            borderColor: st.borderColor,
+            borderWidth: 2,
+            fill: true,
+            tension: 0.4,
+            pointRadius: 4,
+          };
+        }).filter(ds => ds !== null);
+        setLineData({ labels: labelsLine, datasets: filteredLineDatasets });
+        setStackedLineData({ labels: labelsLine, datasets: filteredLineDatasets });
 
-        // (D) Pie: Estado de cumplimiento del Último Mes
+        // Barras: Estadísticas por Nivel ISM3 (porcentajes)
+        const nivelLabels = nivelStatsData.map(item => item.nombre || `Nivel ${item.nivel}`);
+        const barStates = [
+          { label: 'Cumple', field: 'pcCumple', backgroundColor: colors.cumple, borderColor: colors.cumpleBorder },
+          { label: 'Cumple Parcial', field: 'pcParcial', backgroundColor: colors.parcial, borderColor: colors.parcialBorder },
+          { label: 'No Cumple', field: 'pcNoCumple', backgroundColor: colors.noCumple, borderColor: colors.noCumpleBorder },
+          { label: 'No Medido', field: 'pcNoMedido', backgroundColor: colors.noMedido, borderColor: colors.noMedidoBorder }
+        ];
+        const filteredBarDatasets = barStates.map(st => {
+          const data = nivelStatsData.map(item => parseFloat(item[st.field].replace('%', '')));
+          if (data.every(val => val === 0)) return null;
+          return {
+            label: st.label,
+            data,
+            backgroundColor: st.backgroundColor,
+            borderColor: st.borderColor,
+            borderWidth: 1,
+          };
+        }).filter(ds => ds !== null);
+        setBarData({ labels: nivelLabels, datasets: filteredBarDatasets });
+
+        // Pie: Estado de Cumplimiento del Último Mes
         const lastMonth = acumulado[acumulado.length - 1] || { cumple: 0, cumpleParcial: 0, noCumple: 0, noMedido: 0 };
         const totalLastMonth = lastMonth.cumple + lastMonth.cumpleParcial + lastMonth.noCumple + lastMonth.noMedido || 1;
-        const pieDatasetData = [
+        const rawPieData = [
           Math.round((lastMonth.cumple / totalLastMonth) * 100),
           Math.round((lastMonth.cumpleParcial / totalLastMonth) * 100),
           Math.round((lastMonth.noCumple / totalLastMonth) * 100),
           Math.round((lastMonth.noMedido / totalLastMonth) * 100),
         ];
-
-        // Actualizamos los estados con los datos calculados
-        setRadarData({
-          labels: labelsRadar,
-          datasets: [
-            {
-              label: '% Cumple',
-              data: dataRadar,
-              backgroundColor: 'rgba(26, 188, 156, 0.3)',
-              borderColor: colors.cumpleBorder,
-              borderWidth: 2,
-              pointBackgroundColor: colors.cumpleBorder,
-              pointRadius: 5,
-            },
-          ],
+        const pieBaseLabels = ['Cumple', 'Cumple Parcial', 'No Cumple', 'No Medido'];
+        const pieDataFiltered = [];
+        const pieLabelsFiltered = [];
+        const pieColorsFiltered = [];
+        rawPieData.forEach((value, i) => {
+          if (value > 0) {
+            pieLabelsFiltered.push(pieBaseLabels[i]);
+            pieDataFiltered.push(value);
+            if (i === 0) pieColorsFiltered.push(colors.cumple);
+            if (i === 1) pieColorsFiltered.push(colors.parcial);
+            if (i === 2) pieColorsFiltered.push(colors.noCumple);
+            if (i === 3) pieColorsFiltered.push(colors.noMedido);
+          }
         });
-
-        setLineData({
-          labels: labelsLine,
-          datasets: lineDatasets,
-        });
-
-        setBarData({
-          labels: nivelLabels,
-          datasets: barDatasets,
-        });
-
         setPieData({
-          labels: ['Cumple', 'Cumple Parcial', 'No Cumple', 'No Medido'],
+          labels: pieLabelsFiltered,
+          datasets: [{
+            data: pieDataFiltered,
+            backgroundColor: pieColorsFiltered,
+            borderColor: '#fff',
+            borderWidth: 2,
+          }],
+        });
+
+        // Grouped Bar Chart: Estadísticas por Categoría (conteo absoluto)
+        const groupedStates = [
+          { label: 'Cumple', field: 'cumple', backgroundColor: colors.cumple, borderColor: colors.cumpleBorder },
+          { label: 'Cumple Parcial', field: 'cumpleParcial', backgroundColor: colors.parcial, borderColor: colors.parcialBorder },
+          { label: 'No Cumple', field: 'noCumple', backgroundColor: colors.noCumple, borderColor: colors.noCumpleBorder },
+          { label: 'No Medido', field: 'noMedido', backgroundColor: colors.noMedido, borderColor: colors.noMedidoBorder },
+        ];
+        const filteredGroupedDatasets = groupedStates.map(st => {
+          const data = catKeysFiltered.map(key => {
+            const val = catStats[key][st.field];
+            return val === 0 ? null : val;
+          });
+          if (data.every(value => value === null)) return null;
+          return {
+            label: st.label,
+            data,
+            backgroundColor: st.backgroundColor,
+            borderColor: st.borderColor,
+            borderWidth: 1,
+          };
+        }).filter(ds => ds !== null);
+        setGroupedCategoryData({
+          labels: catKeysFiltered.map(key => catStats[key].nombre.toUpperCase()),
+          datasets: filteredGroupedDatasets,
+        });
+
+        // Donut Chart: Global Acumulado
+        let totalCumple = 0, totalCumpleParcial = 0, totalNoCumple = 0, totalNoMedido = 0;
+        acumulado.forEach(item => {
+          totalCumple += item.cumple;
+          totalCumpleParcial += item.cumpleParcial;
+          totalNoCumple += item.noCumple;
+          totalNoMedido += item.noMedido;
+        });
+        const totalOverall = totalCumple + totalCumpleParcial + totalNoCumple + totalNoMedido;
+        const rawDonutData = [
+          Math.round((totalCumple / totalOverall) * 100),
+          Math.round((totalCumpleParcial / totalOverall) * 100),
+          Math.round((totalNoCumple / totalOverall) * 100),
+          Math.round((totalNoMedido / totalOverall) * 100),
+        ];
+        const donutBaseLabels = ['Cumple', 'Cumple Parcial', 'No Cumple', 'No Medido'];
+        const donutDataFiltered = [];
+        const donutLabelsFiltered = [];
+        const donutColorsFiltered = [];
+        rawDonutData.forEach((value, i) => {
+          if (value > 0) {
+            donutLabelsFiltered.push(donutBaseLabels[i]);
+            donutDataFiltered.push(value);
+            if (i === 0) donutColorsFiltered.push(colors.cumple);
+            if (i === 1) donutColorsFiltered.push(colors.parcial);
+            if (i === 2) donutColorsFiltered.push(colors.noCumple);
+            if (i === 3) donutColorsFiltered.push(colors.noMedido);
+          }
+        });
+        setDonutOverallData({
+          labels: donutLabelsFiltered,
+          datasets: [{
+            data: donutDataFiltered,
+            backgroundColor: donutColorsFiltered,
+            borderColor: '#fff',
+            borderWidth: 2,
+          }],
+        });
+
+        // Gauge Chart: Indicador de Cumplimiento Global
+        const overallPctCumple = Math.round((totalCumple / totalOverall) * 100);
+        setGaugeData({
+          labels: ['Cumple', 'Restante'],
+          datasets: [{
+            data: [overallPctCumple, 100 - overallPctCumple],
+            backgroundColor: [colors.cumple, "#e0e0e0"],
+            borderWidth: 0,
+          }],
+        });
+
+        // --- Gráficos Combinados para Box Plot y Violin Plot ---
+        // Para cada mes se crea una "caja" degenerate basada en 'cumple'
+        // Y se definen datasets de tipo scatter para los otros estados con un punto más grande.
+        const labels = acumulado.map(item => item.mes);
+        const boxData = acumulado.map(item => {
+          const v = item.cumple;
+          return computeBoxPlotStats(v);
+        });
+        const scatterCumpleParcial = acumulado.map(item => ({ x: item.mes, y: item.cumpleParcial }));
+        const scatterNoCumple = acumulado.map(item => ({ x: item.mes, y: item.noCumple }));
+        const scatterNoMedido = acumulado.map(item => ({ x: item.mes, y: item.noMedido }));
+        
+        const combinedBoxPlotData = {
+          labels,
           datasets: [
             {
-              data: pieDatasetData,
-              backgroundColor: [
-                colors.cumple,
-                colors.parcial,
-                colors.noCumple,
-                colors.noMedido,
-              ],
-              borderColor: '#fff',
-              borderWidth: 2,
+              type: 'boxplot',
+              label: 'Cumple',
+              data: boxData,
+              backgroundColor: colors.cumple.replace('0.6', '0.3'),
+              borderColor: colors.cumpleBorder,
+              borderWidth: 1,
             },
-          ],
-        });
+            {
+              type: 'scatter',
+              label: 'Cumple Parcial',
+              data: scatterCumpleParcial,
+              backgroundColor: colors.parcial,
+              borderColor: colors.parcialBorder,
+              pointRadius: 10, // Aumentamos el tamaño a 10
+            },
+            {
+              type: 'scatter',
+              label: 'No Cumple',
+              data: scatterNoCumple,
+              backgroundColor: colors.noCumple,
+              borderColor: colors.noCumpleBorder,
+              pointRadius: 10, // Aumentamos el tamaño a 10
+            },
+            {
+              type: 'scatter',
+              label: 'No Medido',
+              data: scatterNoMedido,
+              backgroundColor: colors.noMedido,
+              borderColor: colors.noMedidoBorder,
+              pointRadius: 10, // Aumentamos el tamaño a 10
+            },
+          ]
+        };
+
+        const combinedViolinData = {
+          labels,
+          datasets: [
+            {
+              type: 'violin',
+              label: 'Cumple',
+              data: boxData,
+              backgroundColor: colors.cumple.replace('0.6', '0.3'),
+              borderColor: colors.cumpleBorder,
+              borderWidth: 1,
+            },
+            {
+              type: 'scatter',
+              label: 'Cumple Parcial',
+              data: scatterCumpleParcial,
+              backgroundColor: colors.parcial,
+              borderColor: colors.parcialBorder,
+              pointRadius: 10,
+            },
+            {
+              type: 'scatter',
+              label: 'No Cumple',
+              data: scatterNoCumple,
+              backgroundColor: colors.noCumple,
+              borderColor: colors.noCumpleBorder,
+              pointRadius: 10,
+            },
+            {
+              type: 'scatter',
+              label: 'No Medido',
+              data: scatterNoMedido,
+              backgroundColor: colors.noMedido,
+              borderColor: colors.noMedidoBorder,
+              pointRadius: 10,
+            },
+          ]
+        };
+
+        setCombinedBoxPlotData(combinedBoxPlotData);
+        setCombinedViolinData(combinedViolinData);
 
         setLoading(false);
       } catch (error) {
@@ -269,17 +438,13 @@ const Reportes = () => {
     };
 
     fetchAndProcessData();
-  }, []); // Se ejecuta solo una vez al montar el componente
+  }, []);
 
   const exportPDF = () => {
-    if (!radarRef.current || !lineRef.current || !barRef.current || !pieRef.current) return;
-
-    Promise.all([
-      html2canvas(radarRef.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true }),
-      html2canvas(lineRef.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true }),
-      html2canvas(barRef.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true }),
-      html2canvas(pieRef.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true }),
-    ])
+    const refs = [radarRef, lineRef, barRef, pieRef, stackedRef, groupedRef, donutRef, gaugeRef, boxPlotRef, violinRef];
+    Promise.all(refs.map(ref =>
+      html2canvas(ref.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
+    ))
       .then((canvases) => {
         const pdf = new jsPDF('p', 'mm', 'a4');
         canvases.forEach((canvas, index) => {
@@ -287,9 +452,7 @@ const Reportes = () => {
           const pdfWidth = pdf.internal.pageSize.getWidth();
           const ratio = canvas.height / canvas.width;
           const imgHeight = pdfWidth * ratio;
-          if (index > 0) {
-            pdf.addPage();
-          }
+          if (index > 0) pdf.addPage();
           pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, imgHeight);
         });
         pdf.setFontSize(14);
@@ -311,84 +474,259 @@ const Reportes = () => {
   }
 
   return (
-    <Container maxWidth="lg" sx={{ backgroundColor: '#ffffff', color: '#000000', py: 4 }}>
-      <Typography variant="h4" align="center" gutterBottom>
-        Reporte estadístico de cumplimiento
+    <Container maxWidth="lg" sx={{ backgroundColor: '#f7f7f7', color: '#333', py: 4 }}>
+      <Typography variant="h5" align="center" gutterBottom sx={{ fontWeight: 'bold', mb: 4 }}>
+        Reporte de cumplimiento
       </Typography>
-
-      <Paper sx={{ p: 3, mb: 8, height: 600, overflow: 'auto' }} ref={radarRef}>
-        <Typography variant="h6" align="center" gutterBottom>
-          % Cumple por Categoría
-        </Typography>
-        <Radar 
-          data={radarData}
-          options={{
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: { r: { ticks: { beginAtZero: true, max: 100 } } },
-            plugins: {
-              legend: { display: true, position: 'top' },
-              title: { display: true, text: 'Porcentaje de Cumplimiento por Categoría' },
-            },
-          }} 
-        />
-      </Paper>
-
-      <Paper sx={{ p: 3, mb: 8, height: 600, overflow: 'auto' }} ref={lineRef}>
-        <Typography variant="h6" align="center" gutterBottom>
-          Comportamiento acumulado por mes
-        </Typography>
-        <Line 
-          data={lineData} 
-          options={{
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: true, position: 'top' },
-              title: { display: true, text: 'Evolución Mensual Acumulada', font: { size: 20 } },
-            },
-            scales: { y: { beginAtZero: true } },
-          }} 
-        />
-      </Paper>
-
-      <Paper sx={{ p: 3, mb: 8, height: 600, overflow: 'auto' }} ref={barRef}>
-        <Typography variant="h6" align="center" gutterBottom>
-          Cumplimiento por nivel de ISM3
-        </Typography>
-        <Bar 
-          data={barData} 
-          options={{
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: true, position: 'top' },
-              title: { display: true, text: 'Cumplimiento por Nivel de ISM3', font: { size: 20 } },
-            },
-            scales: { y: { beginAtZero: true, max: 100 } },
-          }} 
-        />
-      </Paper>
-
-      <Paper sx={{ p: 3, mb: 8, height: 600, overflow: 'auto' }} ref={pieRef}>
-        <Typography variant="h6" align="center" gutterBottom>
-          Estado de cumplimiento (Último Mes)
-        </Typography>
-        <Pie 
-          data={pieData} 
-          options={{
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: true, position: 'top' },
-              title: { display: true, text: 'Cumplimiento del Último Mes', font: { size: 20 } },
-            },
-          }} 
-        />
-      </Paper>
-
-      <Box textAlign="center" mt={2}>
-        <Button variant="contained" color="primary" onClick={exportPDF}>
+      <Grid container spacing={4} justifyContent="center">
+        {/* (A) Radar */}
+        <Grid item xs={12} md={6}>
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={radarRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
+              % por categoría (Radar)
+            </Typography>
+            <Radar
+              data={radarData}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  r: {
+                    min: 0,
+                    max: 100,
+                    ticks: { stepSize: 10, padding: 20, backdropColor: 'transparent' },
+                    grid: { color: 'rgba(0,0,0,0.1)' },
+                  },
+                },
+                plugins: {
+                  legend: { display: true, position: 'top', labels: { font: { family: 'Roboto', size: 12, weight: 'bold' } } },
+                  title: { display: false },
+                  datalabels: { formatter: (value) => (value === null ? '' : `${value}%`), color: '#000', font: { weight: 'bold', family: 'Roboto' } },
+                },
+              }}
+            />
+          </Paper>
+        </Grid>
+        {/* (B) Stacked Area Chart */}
+        <Grid item xs={12} md={6}>
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={stackedRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
+              Evolución mensual (Área Apilada)
+            </Typography>
+            <Line
+              data={stackedLineData}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  x: { stacked: true, grid: { display: false }, ticks: { padding: 20 } },
+                  y: { stacked: true, beginAtZero: true, grid: { display: true, drawBorder: false, color: 'rgba(0,0,0,0.1)', lineWidth: 1, drawTicks: false }, ticks: { padding: 20 } },
+                },
+                plugins: {
+                  legend: { display: true, position: 'top', labels: { font: { family: 'Roboto', size: 12, weight: 'bold' } } },
+                  title: { display: false },
+                  datalabels: { display: true },
+                },
+              }}
+            />
+          </Paper>
+        </Grid>
+        {/* (C) Grouped Bar Chart */}
+        <Grid item xs={12} md={6}>
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={groupedRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
+              Estadísticas por categoría (Conteo)
+            </Typography>
+            <Bar
+              data={groupedCategoryData}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  x: { grid: { display: false }, ticks: { padding: 20 } },
+                  y: { beginAtZero: true, grid: { display: true, drawBorder: false, color: 'rgba(0,0,0,0.1)', lineWidth: 1, drawTicks: false }, ticks: { padding: 20 } },
+                },
+                plugins: {
+                  legend: { display: true, position: 'top', labels: { font: { family: 'Roboto', size: 12, weight: 'bold' } } },
+                  title: { display: false },
+                  datalabels: { anchor: 'center', align: 'center', formatter: (value) => (value === null ? '' : value), color: '#000', font: { weight: 'bold', family: 'Roboto' } },
+                },
+              }}
+            />
+          </Paper>
+        </Grid>
+        {/* (D) Línea: Evolución Mensual Acumulada */}
+        <Grid item xs={12} md={6}>
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={lineRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
+              Evolución mensual acumulado
+            </Typography>
+            <Line
+              data={lineData}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  x: { grid: { display: false }, ticks: { padding: 20 } },
+                  y: { beginAtZero: true, grid: { display: true, drawBorder: false, color: 'rgba(0,0,0,0.1)', lineWidth: 1, drawTicks: false }, ticks: { padding: 20 } },
+                },
+                plugins: {
+                  legend: { display: true, position: 'top', labels: { font: { family: 'Roboto', size: 12, weight: 'bold' } } },
+                  title: { display: false },
+                  datalabels: { display: true, anchor: 'center', align: 'center', offset: 0, formatter: (value) => value, color: '#000', font: { weight: 'bold', family: 'Roboto' } },
+                },
+              }}
+            />
+          </Paper>
+        </Grid>
+        {/* (E) Barras: Nivel ISM3 */}
+        <Grid item xs={12} md={6}>
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={barRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
+              Cumplimiento por nivel ISM3
+            </Typography>
+            <Bar
+              data={barData}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  x: { grid: { display: false }, ticks: { padding: 20 } },
+                  y: { beginAtZero: true, max: 100, grid: { display: true, drawBorder: false, color: 'rgba(0,0,0,0.1)', lineWidth: 1, drawTicks: false }, ticks: { padding: 20 } },
+                },
+                plugins: {
+                  legend: { display: true, position: 'top', labels: { font: { family: 'Roboto', size: 12, weight: 'bold' } } },
+                  title: { display: false },
+                  datalabels: { anchor: 'center', align: 'center', formatter: (value) => value === 0 ? '' : `${value}%`, color: '#000', font: { weight: 'bold', family: 'Roboto' } },
+                },
+              }}
+            />
+          </Paper>
+        </Grid>
+        {/* (F) Donut Chart: Global Acumulado */}
+        <Grid item xs={12} md={6}>
+          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={donutRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
+              Global acumulado (Donut)
+            </Typography>
+            <Pie
+              data={donutOverallData}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '50%',
+                plugins: {
+                  legend: { display: true, position: 'top', labels: { font: { family: 'Roboto', size: 12, weight: 'bold' } } },
+                  title: { display: false },
+                  datalabels: { formatter: (value) => `${value}%`, color: '#000', font: { weight: 'bold', family: 'Roboto' } },
+                },
+              }}
+            />
+          </Paper>
+        </Grid>
+        {/* (G) Gauge Chart: Indicador Global de Cumplimiento */}
+        <Grid item xs={12} md={6}>
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={gaugeRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
+              Indicador global de cumplimiento
+            </Typography>
+            <Doughnut
+              data={gaugeData}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                rotation: -90,
+                circumference: 180,
+                cutout: '70%',
+                plugins: {
+                  legend: { display: false },
+                  title: { display: false },
+                  datalabels: { display: false },
+                  tooltip: { enabled: false },
+                },
+              }}
+              redraw
+            />
+            <Box
+              sx={{
+                position: 'relative',
+                top: '-160px',
+                textAlign: 'center',
+                fontSize: '2rem',
+                fontWeight: 'bold',
+                color: colors.cumpleBorder,
+                fontFamily: 'Roboto'
+              }}
+            >
+              {gaugeData.datasets[0].data[0]}%
+            </Box>
+          </Paper>
+        </Grid>
+        {/* (H) Pie: Último Mes */}
+        <Grid item xs={12} md={6}>
+          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={pieRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
+              Estado de cumplimiento (Último Mes)
+            </Typography>
+            <Pie
+              data={pieData}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: { display: true, position: 'top', labels: { font: { family: 'Roboto', size: 12, weight: 'bold' } } },
+                  title: { display: false },
+                  datalabels: { formatter: (value) => `${value}%`, color: '#000', font: { weight: 'bold', size: 12, family: 'Roboto' } },
+                },
+              }}
+            />
+          </Paper>
+        </Grid>
+        {/* (I) Gráfico combinado Box Plot */}
+        <Grid item xs={12} md={6}>
+          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={boxPlotRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
+              Evolución mensual (Box Plot)
+            </Typography>
+            <Chart
+              data={combinedBoxPlotData}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { x: { type: 'category' }, y: { beginAtZero: true } },
+                plugins: {
+                  tooltip: { enabled: true },
+                  legend: { display: true, position: 'top', labels: { font: { family: 'Roboto', size: 12, weight: 'bold' } } },
+                  datalabels: { display: false },
+                },
+              }}
+            />
+          </Paper>
+        </Grid>
+        {/* (J) Gráfico combinado Violin Plot */}
+        <Grid item xs={12} md={6}>
+          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%', mx: 'auto' }} ref={violinRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
+              Evolución mensual (Violin Plot)
+            </Typography>
+            <Chart
+              data={combinedViolinData}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { x: { type: 'category' }, y: { beginAtZero: true } },
+                plugins: {
+                  tooltip: { enabled: true },
+                  legend: { display: true, position: 'top', labels: { font: { family: 'Roboto', size: 12, weight: 'bold' } } },
+                  datalabels: { display: false },
+                },
+              }}
+            />
+          </Paper>
+        </Grid>
+      </Grid>
+      <Box textAlign="center" mt={4}>
+        <Button variant="contained" color="primary" onClick={exportPDF} sx={{ fontWeight: 'bold', px: 4, py: 1 }}>
           Descargar reporte en PDF
         </Button>
       </Box>
