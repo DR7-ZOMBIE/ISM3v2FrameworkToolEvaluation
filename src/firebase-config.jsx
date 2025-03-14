@@ -1,5 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, getDocs, setDoc, doc, updateDoc, deleteDoc, onSnapshot, addDoc} from "firebase/firestore";
+import { getAuth } from "firebase/auth"; // Importa Firebase Auth
+
 
 
 // Tu configuración de Firebase (proporcionada por Firebase Console)
@@ -16,5 +18,7 @@ const firebaseConfig = {
 // Inicializa Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+// Inicializa Auth usando la app ya inicializada
+const auth = getAuth(app);
 
-export { db, collection, getDocs, setDoc, doc, updateDoc, deleteDoc, onSnapshot, addDoc };
+export { db, collection, getDocs, setDoc, doc, updateDoc, deleteDoc, onSnapshot, addDoc, auth };

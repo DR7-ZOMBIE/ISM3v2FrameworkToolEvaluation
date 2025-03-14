@@ -1,27 +1,55 @@
 // components/HeroSection.jsx
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { Container, Box, Typography, Button, Paper } from '@mui/material';
 
 const HeroSection = () => {
   return (
-    <section
-      className="bg-cover bg-center h-screen flex items-center justify-center"
-      style={{ backgroundImage: "url('https://source.unsplash.com/1600x900/?technology,abstract')" }}
+    <Box
+      sx={{
+        backgroundImage: "url('https://source.unsplash.com/1600x900/?cybersecurity,technology')",
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        height: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
     >
-      <div className="bg-gradient-to-r from-blue-100 to-blue-200 p-10 rounded-lg shadow-lg text-center max-w-3xl mx-4">
-        <h1 className="text-4xl md:text-5xl font-extrabold text-blue-900 mb-4">
+      <Paper
+        elevation={12}
+        sx={{
+          backgroundColor: 'rgba(255, 255, 255, 0.9)',
+          backdropFilter: 'blur(8px)',
+          p: { xs: 3, sm: 6, md: 8 },
+          borderRadius: 4,
+          textAlign: 'center',
+          maxWidth: 800,
+          mx: 2,
+        }}
+      >
+        <Typography variant="h3" component="h1" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
           Bienvenido a ISM3 v2
-        </h1>
-        <p className="text-lg text-blue-900 mb-8">
-          ISM3 v2 es un modelo de evaluación de maduración del riesgo que integra auditorías de controles y análisis de seguridad para medir la efectividad de las medidas de protección en tu organización. Nuestra herramienta interactiva y visual te ayuda a identificar áreas de mejora, optimizar la gestión del riesgo y tomar decisiones estratégicas basadas en datos precisos.
-        </p>
-        <Link to="/evaluacion">
-          <button className="bg-yellow-200 hover:bg-yellow-300 text-yellow-900 font-bold py-2 px-6 rounded transition-colors duration-200">
-            Iniciar Evaluación
-          </button>
-        </Link>
-      </div>
-    </section>
+        </Typography>
+        <Typography variant="h6" component="p" gutterBottom sx={{ color: 'text.secondary', mb: 3, lineHeight: 1.6 }}>
+          Basado en el <strong>Estándar Open Group</strong>, ISM3 v2 es un modelo avanzado de madurez en gestión de seguridad de la información diseñado para evaluar y mejorar continuamente los procesos críticos de seguridad en tu organización.
+          <br /><br />
+          Este marco integral no solo permite medir la efectividad de controles, sino que también establece objetivos claros y prioriza inversiones, alineando la seguridad con las metas estratégicas del negocio.
+          <br /><br />
+          Con referencias a estándares internacionales como ISO 27001, NIST Cybersecurity Framework y COBIT, ISM3 v2 ofrece una metodología basada en procesos y métricas objetivas, facilitando la toma de decisiones informada y la mejora continua del Sistema de Gestión de Seguridad de la Información (ISMS).
+        </Typography>
+        <Button
+          component={Link}
+          to="/evaluacion"
+          variant="contained"
+          color="primary"
+          size="large"
+          sx={{ mt: 3, px: 5, py: 1.5 }}
+        >
+          Iniciar Evaluación
+        </Button>
+      </Paper>
+    </Box>
   );
 };
 

@@ -1,34 +1,105 @@
 // components/Navbar.jsx
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { AppBar, Toolbar, Typography, Button, Box, IconButton, Menu, MenuItem } from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
+import { Link, useNavigate } from 'react-router-dom';
+import { signOut } from 'firebase/auth';
+import { auth } from '../firebase-config';
 
-const Navbar = () => {
+const Navbar = ({ setIsAuthenticated }) => {
+  const navigate = useNavigate();
+  const [anchorEl, setAnchorEl] = React.useState(null);
+
+  const handleMenuOpen = (event) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      setIsAuthenticated(false);
+      navigate('/login');
+    } catch (error) {
+      alert("Error al cerrar sesión: " + error.message);
+    }
+  };
+
   return (
-    <nav className="flex justify-between items-center p-4 bg-gradient-to-r from-blue-100 to-blue-200 text-blue-900 shadow-md sticky top-0 z-50">
-      <div className="text-2xl font-extrabold">
-        <Link to="/" className="transition-colors duration-200 hover:text-blue-700">
+    <AppBar position="sticky" color="primary" sx={{ boxShadow: 4 }}>
+      <Toolbar sx={{ justifyContent: 'space-between' }}>
+        <Typography
+          variant="h6"
+          component={Link}
+          to="/"
+          sx={{
+            textDecoration: 'none',
+            color: 'inherit',
+            fontWeight: 'bold'
+          }}
+        >
           ISM3 v2
-        </Link>
-      </div>
-      <ul className="flex space-x-6">
-       
-        <li>
-          <Link to="/evaluacion" className="transition-colors duration-200 hover:text-blue-700">
+        </Typography>
+
+        {/* Menú para pantallas medianas y grandes */}
+        <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 2 }}>
+          <Button component={Link} to="/evaluacion" sx={{ color: 'inherit', fontWeight: 'bold' }}>
             Evaluación
-          </Link>
-        </li>
-        <li>
-          <Link to="/reportes" className="transition-colors duration-200 hover:text-blue-700">
+          </Button>
+          <Button component={Link} to="/reportes" sx={{ color: 'inherit', fontWeight: 'bold' }}>
             Reportes
-          </Link>
-        </li>
-        <li>
-          <Link to="/contacto" className="transition-colors duration-200 hover:text-blue-700">
-            Contacto
-          </Link>
-        </li>
-      </ul>
-    </nav>
+          </Button>
+          <Button
+            onClick={handleSignOut}
+            sx={{
+              backgroundColor: 'error.main',
+              color: 'white',
+              fontWeight: 'bold',
+              '&:hover': { backgroundColor: 'error.dark' }
+            }}
+          >
+            Cerrar sesión
+          </Button>
+        </Box>
+
+        {/* Menú para pantallas pequeñas */}
+        <Box sx={{ display: { xs: 'flex', md: 'none' } }}>
+          <IconButton
+            size="large"
+            edge="start"
+            color="inherit"
+            onClick={handleMenuOpen}
+          >
+            <MenuIcon />
+          </IconButton>
+          <Menu
+            anchorEl={anchorEl}
+            open={Boolean(anchorEl)}
+            onClose={handleMenuClose}
+            anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <MenuItem component={Link} to="/evaluacion" onClick={handleMenuClose}>
+              Evaluación
+            </MenuItem>
+            <MenuItem component={Link} to="/reportes" onClick={handleMenuClose}>
+              Reportes
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                handleMenuClose();
+                handleSignOut();
+              }}
+            >
+              Cerrar sesión
+            </MenuItem>
+          </Menu>
+        </Box>
+      </Toolbar>
+    </AppBar>
   );
 };
 

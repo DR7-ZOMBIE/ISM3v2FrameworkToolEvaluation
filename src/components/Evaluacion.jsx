@@ -1,3 +1,4 @@
+// Evaluacion.jsx
 import React, { useState, useEffect } from 'react';
 import {
   db,
@@ -13,6 +14,61 @@ import {
 import AcumuladoTable from '../components/AcumuladoTable';
 import CategoryTable from '../components/CategoryTable';
 import NivelTable from '../components/NivelTable';
+
+import {
+  Container,
+  Typography,
+  Box,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Checkbox
+} from '@mui/material';
+
+// Objeto que contiene la descripción de cada proceso (según la matriz de procesos que manejas)
+const processDescriptions = {
+  "GP-1": "Gestión del conocimiento en seguridad de la información a través de la recopilación, análisis y difusión de datos críticos para el SGSI.",
+  "GP-2": "Auditoría del SGSI para validar la congruencia entre la gestión de seguridad y los requerimientos institucionales.",
+  "OSP-1": "Generación de informes operativos para la gerencia táctica, evidenciando el desempeño de los controles de seguridad.",
+  "OSP-10": "Gestión y verificación de las copias de seguridad, garantizando la disponibilidad y recuperación de la información.",
+  "OSP-11": "Implementación y supervisión de controles de acceso que aseguran que solo personal autorizado acceda a recursos sensibles.",
+  "OSP-12": "Administración del proceso de alta de usuarios, asignación de credenciales y configuración de derechos de acceso.",
+  "OSP-14": "Protección del entorno físico mediante la implementación de medidas de seguridad en las instalaciones.",
+  "OSP-15": "Planificación y ejecución de estrategias para la continuidad de las operaciones ante eventos disruptivos.",
+  "OSP-16": "Definición y aplicación de políticas de segmentación de red y filtros para minimizar la exposición a ataques.",
+  "OSP-17": "Implementación de soluciones para la detección, prevención y eliminación de malware en los sistemas.",
+  "OSP-19": "Auditoría técnica interna para evaluar la eficacia de los controles de seguridad implementados en el SGSI.",
+  "OSP-19A": "Auditoría técnica externa realizada por terceros para validar la robustez y conformidad de los controles de seguridad.",
+  "OSP-2": "Gestión de la adquisición de equipos y servicios que aseguran la seguridad de la infraestructura de operación.",
+  "OSP-20": "Simulación de incidentes de seguridad para evaluar la capacidad de respuesta y mejorar los planes de contingencia.",
+  "OSP-21": "Verificación de la calidad de la información y demostración del cumplimiento de los requerimientos de seguridad.",
+  "OSP-22": "Monitoreo y seguimiento de alertas de seguridad para garantizar una respuesta rápida ante eventos críticos.",
+  "OSP-24": "Gestión integral de incidentes y cuasi incidentes, abarcando la contención, análisis y documentación.",
+  "OSP-24A": "Implementación de mecanismos para la detección temprana y análisis detallado de eventos de seguridad.",
+  "OSP-26": "Optimización de la infraestructura para mejorar la disponibilidad y confiabilidad, reduciendo puntos de fallo.",
+  "OSP-3": "Inventario y clasificación de activos de TI, asegurando la protección y trazabilidad de los mismos.",
+  "OSP-4": "Control de cambios en los entornos de información para minimizar riesgos asociados a modificaciones.",
+  "OSP-5": "Aplicación oportuna de parches y actualizaciones en los ambientes, mitigando vulnerabilidades.",
+  "OSP-6": "Limpieza y eliminación segura de información residual en entornos, previniendo filtraciones.",
+  "OSP-7": "Refuerzo de la seguridad en los ambientes de TI, mediante mejoras en configuraciones y controles.",
+  "OSP-8": "Supervisión del ciclo de vida del desarrollo de software, integrando prácticas de seguridad desde el inicio.",
+  "OSP-9": "Gestión y documentación de cambios en los controles de seguridad para asegurar su efectividad.",
+  "SSP-1": "Emisión de informes estratégicos para stakeholders, comunicando el estado y desempeño del SGSI.",
+  "SSP-2": "Coordinación entre las áreas involucradas en la gestión de seguridad para asegurar la integración de políticas.",
+  "SSP-4": "Establecimiento de reglas de transparencia, segregación, supervisión, rotación y separación de responsabilidades para mitigar riesgos internos.",
+  "SSP-6": "Asignación de recursos financieros, humanos y tecnológicos que permitan la adecuada implementación del SGSI.",
+  "TSP-1": "Generación de reportes a la gerencia estratégica para facilitar la toma de decisiones basadas en indicadores de seguridad.",
+  "TSP-11": "Fomento de una cultura de seguridad mediante la concientización y establecimiento de buenas prácticas en la organización.",
+  "TSP-2": "Administración eficiente de los recursos asignados a la seguridad, garantizando su uso óptimo y alineación con los objetivos.",
+  "TSP-3": "Definición de metas y objetivos específicos de seguridad basados en el análisis de riesgos y necesidades del negocio.",
+  "TSP-3A": "Equilibrio entre los objetivos de ciberseguridad y la exposición a riesgos, determinando inversiones y acciones correctivas.",
+  "TSP-4": "Establecimiento y monitoreo de acuerdos de nivel de servicio para asegurar que los controles cumplan con estándares predefinidos.",
+  "TSP-6": "Definición de los entornos operativos y ciclo de vida de los activos, integrando medidas de seguridad en cada fase.",
+  "TSP-7": "Verificación de antecedentes del personal en roles críticos para garantizar la idoneidad y confiabilidad.",
+  "TSP-8": "Proceso de selección y reclutamiento del personal especializado en seguridad de la información.",
+  "TSP-9": "Desarrollo e implementación de programas de capacitación continua en temas de seguridad de la información."
+};
 
 // Función para determinar el color de fondo según el estado de cumplimiento
 const getStatusColor = (estado) => {
@@ -61,7 +117,7 @@ const fetchDocumentsFromFirestore = async (collectionName) => {
   return snapshot.docs.map((doc) => doc.data());
 };
 
-// Cálculos de estadísticas de categoría (se mantiene igual)
+// Cálculos de estadísticas de categoría
 const calculateCategoryStats = (data) => {
   const categoryStats = {};
   const possibleCategories = ['c', 'o', 'v', 'r', '$', 'g', 'p'];
@@ -124,7 +180,7 @@ const calculateCategoryStats = (data) => {
   return categoryStats;
 };
 
-// Cálculos de estadísticas de niveles (se mantiene igual)
+// Cálculos de estadísticas de niveles
 const calculateNivelStats = (data) => {
   const nivelStats = {};
   for (let i = 1; i <= 4; i++) {
@@ -160,76 +216,57 @@ const calculateNivelStats = (data) => {
 };
 
 const Evaluacion = () => {
-  // Definición de los clientes y sus propiedades:
+  // Estándar de metas para todas las empresas
+  const standardMetas = {
+    'No Cumple': [0, 84],
+    'Cumple Parcialmente': [85, 94],
+    'Cumple': [95, 100]
+  };
+
+  // Clientes
   const clients = [
     {
       name: 'Universidad Cooperativa de Colombia',
       code: 'UCC',
       collection: 'procesos_UCC',
-      metas: {
-        'No cumple': [0, 59],
-        'Cumple deficientemente': [60, 69],
-        'Cumple aceptable': [70, 79],
-        'Cumple a alto grado': [80, 89],
-        'Cumple plenamente': [90, 100],
-      }
+      metas: standardMetas
     },
     {
       name: 'Cajacopi',
       code: 'CAJACOPI',
       collection: 'procesos_Cajacopi',
-      metas: {
-        'No cumple': [0, 59],
-        'Cumple deficientemente': [60, 69],
-        'Cumple aceptable': [70, 79],
-        'Cumple a alto grado': [80, 89],
-        'Cumple plenamente': [90, 100],
-      }
+      metas: standardMetas
     },
     {
       name: 'Cámara de Comercio de Medellín',
       code: 'CAMARA',
       collection: 'procesos_Camara',
-      metas: {
-        'No cumple': [0, 59],
-        'Cumple deficientemente': [60, 69],
-        'Cumple aceptable': [70, 79],
-        'Cumple a alto grado': [80, 89],
-        'Cumple plenamente': [90, 100],
-      }
+      metas: standardMetas
     },
     {
       name: 'SisteCrédito',
       code: 'SISTECREDITO',
-      collection: 'procesos', // Colección actual con 40 procesos
-      metas: {
-        'No Medido': [0, 0],
-        'No Cumple': [1, 84],
-        'Cumple Parcialmente': [85, 94],
-        'Cumple': [95, 100],
-      }
+      collection: 'procesos',
+      metas: standardMetas
     }
   ];
-  
-  // Estado para el cliente seleccionado, por defecto el primero
+
+  // Estado del cliente seleccionado
   const [selectedClient, setSelectedClient] = useState(clients[0]);
 
-  // Estados de la data
+  // Estados para la data
   const [data, setData] = useState([]);
   const [acumulado, setAcumulado] = useState([]);
   const [nivelStats, setNivelStats] = useState([]);
   const [categoryStats, setCategoryStats] = useState({});
 
-  // Escuchamos cambios en la colección de procesos según el cliente seleccionado.
-  // Si la colección está vacía (y no es la de SisteCrédito) se obtiene la data de la colección 'procesos'
+  // Listener para la colección de procesos
   useEffect(() => {
     const colRef = collection(db, selectedClient.collection);
     const unsubscribe = onSnapshot(colRef, async (snapshot) => {
       if (snapshot.docs.length === 0 && selectedClient.collection !== 'procesos') {
-        // Si no hay datos en la colección del cliente, consumimos la colección de SisteCrédito
         const dataFromSiste = await fetchDocumentsFromFirestore('procesos');
         setData(dataFromSiste);
-        // Guardamos los datos en la colección del cliente actual para que no se quede vacía
         saveDocumentsToFirestore(dataFromSiste, selectedClient.collection, 'id');
 
         const catStats = calculateCategoryStats(dataFromSiste);
@@ -255,16 +292,17 @@ const Evaluacion = () => {
     return () => unsubscribe();
   }, [selectedClient]);
 
-  // Cargamos la colección "acumulado" (se asume que es común o se puede adaptar)
+  // Listener para la colección "acumulado"
   useEffect(() => {
-    const loadAcumulado = async () => {
-      const acumuladoData = await fetchDocumentsFromFirestore('acumulado');
+    const acumRef = collection(db, 'acumulado');
+    const unsubscribeAcum = onSnapshot(acumRef, (snapshot) => {
+      const acumuladoData = snapshot.docs.map(doc => doc.data());
       setAcumulado(acumuladoData);
-    };
-    loadAcumulado();
+    });
+    return () => unsubscribeAcum();
   }, []);
 
-  // Actualiza el porcentaje y calcula el estado usando las metas del cliente seleccionado
+  // Actualiza el porcentaje y calcula el estado usando las metas
   const updatePorcentaje = (e, id) => {
     const p = parseFloat(e.target.value);
     const newPercentage = isNaN(p) ? 0 : p;
@@ -278,7 +316,7 @@ const Evaluacion = () => {
     saveDocumentsToFirestore(updatedData, selectedClient.collection, 'id');
   };
 
-  // Actualización parcial de cualquier campo en Firestore usando updateDoc
+  // Actualiza cualquier campo en Firestore
   const updateField = async (id, field, value) => {
     const updatedData = data.map(item =>
       item.id === id ? { ...item, [field]: value } : item
@@ -299,15 +337,15 @@ const Evaluacion = () => {
 
   const addRowAcumulado = () => {
     const newRow = { id: Date.now().toString(), mes: '', cumple: 0, cumpleParcial: 0, noCumple: 0, noMedido: 0, noAplica: 0 };
-    const updatedAcumulado = [...acumulado, newRow];
-    setAcumulado(updatedAcumulado);
-    saveDocumentsToFirestore(updatedAcumulado, 'acumulado', 'id');
+    saveDocumentsToFirestore([newRow], 'acumulado', 'id');
   };
 
   const deleteRowAcumulado = async (id) => {
-    await deleteDoc(doc(db, 'acumulado', id));
-    const updatedAcumulado = acumulado.filter(item => item.id !== id);
-    setAcumulado(updatedAcumulado);
+    try {
+      await deleteDoc(doc(db, 'acumulado', id));
+    } catch (error) {
+      console.error("Error al eliminar la fila:", error);
+    }
   };
 
   const updateAcumulado = (e, id, field) => {
@@ -319,34 +357,70 @@ const Evaluacion = () => {
     saveDocumentsToFirestore(updatedAcumulado, 'acumulado', 'id');
   };
 
-  // Para el select de responsables (se mantiene igual)
+  // Para el select de responsables
   const uniqueResponsables = Array.from(new Set(data.map(item => item.responsable)));
 
-  return (
-    <div className="p-4 pb-12">
-      {/* Sección superior para seleccionar el cliente */}
-      <div className="mb-6 flex items-center">
-        <label className="mr-2 font-semibold text-lg">Cliente:</label>
-        <select
-          value={selectedClient.code}
-          onChange={(e) => {
-            const client = clients.find(c => c.code === e.target.value);
-            setSelectedClient(client);
-          }}
-          className="border rounded p-2 text-lg"
-        >
-          {clients.map(client => (
-            <option key={client.code} value={client.code}>{client.name}</option>
-          ))}
-        </select>
-      </div>
+  // Nueva función para actualizar el campo "evaluar" (checklist)
+  const updateEvaluar = async (id, value) => {
+    await updateField(id, 'evaluar', value);
+  };
 
-      {/* Tabla de procesos */}
+  return (
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      {/* Selección de Cliente */}
+      <Box 
+        mb={4} 
+        display="flex" 
+        flexDirection={{ xs: 'column', sm: 'row' }} 
+        alignItems="center" 
+        justifyContent="center" 
+        gap={2}
+      >
+        <FormControl variant="outlined" sx={{ minWidth: 240 }}>
+          <InputLabel id="client-select-label">Cliente</InputLabel>
+          <Select
+            labelId="client-select-label"
+            value={selectedClient.code}
+            label="Cliente"
+            onChange={(e) => {
+              const client = clients.find(c => c.code === e.target.value);
+              setSelectedClient(client);
+            }}
+          >
+            {clients.map(client => (
+              <MenuItem key={client.code} value={client.code}>
+                {client.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Box>
+
+      <Typography 
+        variant="h5" 
+        align="center" 
+        gutterBottom 
+        sx={{ fontWeight: 'bold', mb: 4 }}
+      >
+        Reporte de cumplimiento
+      </Typography>
+
+      {/* Tabla de procesos con columna "Descripción" */}
       <div className="overflow-x-auto mb-8">
         <table className="min-w-full border-collapse text-[10px] shadow-lg rounded-lg">
           <thead className="bg-blue-200 text-blue-900">
             <tr>
-              {['Proceso ISM3', 'Nombre', 'Responsable', 'Estado de Cumplimiento', '% Cumplimiento', 'Categoría', 'Nivel'].map(h => (
+              {[
+                'Proceso ISM3', 
+                'Nombre', 
+                'Descripción',
+                'Responsable', 
+                'Evaluar', 
+                'Estado de Cumplimiento', 
+                '% Cumplimiento', 
+                'Categoría', 
+                'Nivel'
+              ].map(h => (
                 <th key={h} className="border px-2 py-1 text-center">{h}</th>
               ))}
             </tr>
@@ -356,6 +430,13 @@ const Evaluacion = () => {
               <tr key={item.id} className="hover:bg-gray-100">
                 <td className="border px-2 py-1 text-center">{item.proceso}</td>
                 <td className="border px-2 py-1 text-center">{item.nombre}</td>
+                <td className="border px-2 py-1 text-center">
+                  { item.descripcion 
+                    ? item.descripcion 
+                    : (processDescriptions[item.proceso] 
+                        ? processDescriptions[item.proceso] 
+                        : "Sin descripción disponible") }
+                </td>
                 <td className="border px-2 py-1 text-center">
                   <select
                     value={item.responsable}
@@ -367,6 +448,13 @@ const Evaluacion = () => {
                     ))}
                   </select>
                 </td>
+                <td className="border px-2 py-1 text-center">
+                  <input
+                    type="checkbox"
+                    checked={item.evaluar === undefined ? true : item.evaluar}
+                    onChange={(e) => updateEvaluar(item.id, e.target.checked)}
+                  />
+                </td>
                 <td className={`border px-2 py-1 text-center ${getStatusColor(item.estado)}`}>
                   {item.estado}
                 </td>
@@ -376,6 +464,7 @@ const Evaluacion = () => {
                     value={item.porcentaje}
                     onChange={(e) => updatePorcentaje(e, item.id)}
                     className="w-12 text-center border rounded text-[10px] p-1"
+                    disabled={item.evaluar === false}
                   />
                 </td>
                 <td className="border px-2 py-1 text-center">
@@ -414,7 +503,7 @@ const Evaluacion = () => {
       />
       <CategoryTable categoryStats={Object.values(categoryStats)} />
       <NivelTable nivelStats={nivelStats} updateNivelStats={updateNivelStats} />
-    </div>
+    </Container>
   );
 };
 
