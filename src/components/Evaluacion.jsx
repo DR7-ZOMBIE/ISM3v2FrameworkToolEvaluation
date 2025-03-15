@@ -403,7 +403,7 @@ const Evaluacion = () => {
     }
   };
 
-  // Función para actualizar OSP-23
+ // Función para actualizar OSP-23
   const agregarDescripcionOSP23 = async () => {
     const docRef = doc(db, "procesos_UCC", "OSP-23");
     try {
@@ -419,31 +419,10 @@ const Evaluacion = () => {
     }
   };
 
-  // Función para agregar OSP-28 a la colección UCC (se agregan campos por defecto para que afecte los cálculos)
-  const agregarProcesoOSP28 = async () => {
-    const docRef = doc(db, "procesos_UCC", "OSP-28");
-    try {
-      await setDoc(docRef, {
-        proceso: "OSP-28",
-        nombre: "Detección y análisis de eventos externos",
-        descripcion: "Este proceso revisa: a) opiniones en línea y ataques contra la reputación de la empresa; b) phishing o tergiversación de la imagen de la empresa; c) violación de copyrights.",
-        nivel: 1,
-        evaluar: true,
-        porcentaje: 0,
-        categoria: "g",   // Asigna la categoría que corresponda
-        estado: "No Cumple" // Valor por defecto (o calcula el estado a partir del porcentaje)
-      }, { merge: true });
-      console.log("Documento OSP-28 agregado/actualizado correctamente.");
-    } catch (error) {
-      console.error("Error al agregar/actualizar el documento OSP-28:", error);
-    }
-  };
-
   // Se llama a las funciones para actualizar OSP-23 y OSP-28 solo si el cliente seleccionado es UCC
   useEffect(() => {
     if (selectedClient.collection === "procesos_UCC") {
       agregarDescripcionOSP23();
-      agregarProcesoOSP28();
     }
   }, [selectedClient]);
 
