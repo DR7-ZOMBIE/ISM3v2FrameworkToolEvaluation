@@ -36,9 +36,6 @@ import {
   StyleSheet,
 } from '@react-pdf/renderer';
 
-// Asegúrate de haber instalado @react-pdf/renderer:
-// npm install @react-pdf/renderer
-
 // Registro de plugins de ChartJS
 ChartJS.register(
   CategoryScale,
@@ -78,6 +75,7 @@ const fetchDocumentsFromFirestore = async (collectionName) => {
 };
 
 const calculateCategoryStats = (data) => {
+  // Esta función se deja aquí de referencia, pero en Reportes usaremos los datos guardados en la colección
   const categoryStats = {};
   const possibleCategories = ['c', 'o', 'v', 'r', '$', 'g', 'p'];
   const categoryNames = {
@@ -129,7 +127,6 @@ const computeBoxPlotStats = (value) => ({ min: value, q1: value, median: value, 
 
 /* ===================== COMPONENTES PARA PDF (react-pdf) ===================== */
 
-// Estilos para el PDF con un diseño más cuidado
 const pdfStyles = StyleSheet.create({
   page: {
     padding: 40,
@@ -167,7 +164,6 @@ const pdfStyles = StyleSheet.create({
   },
 });
 
-// Documento PDF que recibe las imágenes (en base64) de cada gráfico
 const MyDocument = ({ pdfData }) => (
   <Document>
     <Page style={pdfStyles.page}>
@@ -237,7 +233,6 @@ const MyDocument = ({ pdfData }) => (
   </Document>
 );
 
-// Componente que muestra el enlace para descargar el PDF
 const ReportePDF = ({ pdfData }) => (
   <Box sx={{ mt: 2, textAlign: 'center' }}>
     <PDFDownloadLink document={<MyDocument pdfData={pdfData} />} fileName="reporte_cumplimiento.pdf">
@@ -246,15 +241,12 @@ const ReportePDF = ({ pdfData }) => (
   </Box>
 );
 
-//////////////////////////////////////////////////////////////////
-// COMPONENTE PRINCIPAL: REPORTES (con selección de cliente responsive)
-//////////////////////////////////////////////////////////////////
+/* ===================== COMPONENTE PRINCIPAL: REPORTES ===================== */
 
-// Función para capturar el elemento (usando html2canvas) y obtener la imagen en base64
 const getElementImage = async (elementRef) => {
   if (elementRef.current) {
     const canvas = await html2canvas(elementRef.current, {
-      scale: 3, // Aumentamos el scale para mayor resolución
+      scale: 3,
       backgroundColor: '#ffffff',
       useCORS: true,
     });
@@ -275,7 +267,7 @@ const Reportes = () => {
   const [loading, setLoading] = useState(true);
   const [pdfData, setPdfData] = useState({});
 
-  // Refs asignadas al contenedor de cada gráfico (se usa Paper para capturar todo el bloque)
+  // Refs para capturar cada gráfico
   const radarRef = useRef(null);
   const lineRef = useRef(null);
   const barRef = useRef(null);
@@ -287,7 +279,7 @@ const Reportes = () => {
   const boxPlotRef = useRef(null);
   const violinRef = useRef(null);
 
-  // Estados para datos de gráficos (estos se actualizan con tus cálculos; aquí se usan ejemplos)
+  // Estados de los gráficos
   const [radarData, setRadarData] = useState({});
   const [lineData, setLineData] = useState({});
   const [barData, setBarData] = useState({});
@@ -301,16 +293,20 @@ const Reportes = () => {
 
   const fetchAndProcessData = async () => {
     try {
-      // Ejemplo: obtenemos datos desde Firestore (reemplaza esto con tu lógica)
+      // Obtiene procesos del cliente
       let procesos = await fetchDocumentsFromFirestore(selectedClient.collection);
       if (procesos.length === 0 && selectedClient.collection !== 'procesos') {
         procesos = await fetchDocumentsFromFirestore('procesos');
       }
       const acumulado = await fetchDocumentsFromFirestore('acumulado');
-      const nivelStatsData = await fetchDocumentsFromFirestore('nivelStats');
-
-      // Realiza tus cálculos y actualiza estados (aquí se usa la lógica que ya tienes)
-      const catStats = calculateCategoryStats(procesos);
+      // Obtiene los datos de niveles de la colección propia del cliente
+      const nivelStatsData = await fetchDocumentsFromFirestore(`nivelStats_${selectedClient.code}`);
+      // Obtiene los datos de categorías desde la colección propia
+      const catStatsArray = await fetchDocumentsFromFirestore(`categoryStats_${selectedClient.code}`);
+      const catStats = {};
+      catStatsArray.forEach(item => {
+        catStats[item.id] = item;
+      });
       const catKeysAll = Object.keys(catStats);
       const catKeysFiltered = catKeysAll.filter(key => {
         const s = catStats[key];
@@ -587,9 +583,7 @@ const Reportes = () => {
     fetchAndProcessData();
   }, [selectedClient]);
 
-  // Función que usa html2canvas para capturar el contenedor de cada gráfico y obtener la imagen en base64.
   const generarImagenesPDF = async () => {
-    // Un pequeño retraso para asegurarnos de que los elementos estén renderizados
     setTimeout(async () => {
       const nuevosDatos = {};
       nuevosDatos.radar = await getElementImage(radarRef);
@@ -613,7 +607,7 @@ const Reportes = () => {
 
   return (
     <Container maxWidth="lg" sx={{ backgroundColor: '#f7f7f7', color: '#333', py: 4 }}>
-      {/* Selección de Cliente con componentes Material-UI */}
+      {/* Selección de Cliente */}
       <Box 
         mb={4} 
         display="flex" 

@@ -90,6 +90,8 @@ const getStatusColor = (estado) => {
       return 'bg-orange-200 text-orange-900';
     case 'Cumple':
       return 'bg-green-200 text-green-900';
+    case 'No Aplica':
+      return 'bg-gray-400 text-gray-900';
     default:
       return '';
   }
@@ -117,7 +119,7 @@ const fetchDocumentsFromFirestore = async (collectionName) => {
   return snapshot.docs.map((doc) => doc.data());
 };
 
-// Cálculos de estadísticas de categoría
+// Cálculos de estadísticas de categoría (se ignoran los procesos con evaluar === false)
 const calculateCategoryStats = (data) => {
   const categoryStats = {};
   const possibleCategories = ['c', 'o', 'v', 'r', '$', 'g', 'p'];
@@ -143,6 +145,8 @@ const calculateCategoryStats = (data) => {
   });
 
   data.forEach(item => {
+    // Solo se cuentan los procesos que estén evaluados
+    if(item.evaluar === false) return;
     const { estado, categoria } = item;
     if (!categoryStats[categoria]) {
       categoryStats[categoria] = { id: categoria, nombre: categoria, cumple: 0, cumpleParcial: 0, noCumple: 0, noMedido: 0 };
@@ -161,6 +165,7 @@ const calculateCategoryStats = (data) => {
         categoryStats[categoria].noCumple += 1;
         break;
       case 'No Medido':
+      case 'No Aplica':
         categoryStats[categoria].noMedido += 1;
         break;
       default:
@@ -180,7 +185,7 @@ const calculateCategoryStats = (data) => {
   return categoryStats;
 };
 
-// Cálculos de estadísticas de niveles
+// Cálculos de estadísticas de niveles (se ignoran los procesos que no están evaluados)
 const calculateNivelStats = (data) => {
   const nivelStats = {};
   for (let i = 1; i <= 4; i++) {
@@ -196,11 +201,12 @@ const calculateNivelStats = (data) => {
   }
 
   data.forEach(item => {
+    if(item.evaluar === false) return;
     const { estado, nivel } = item;
     if (estado === 'Cumple' || estado === 'Cumple plenamente') nivelStats[nivel].cumple++;
     else if (estado === 'Cumple Parcialmente' || estado === 'Cumple deficientemente') nivelStats[nivel].cumpleParcial++;
     else if (estado === 'No Cumple' || estado === 'No cumple') nivelStats[nivel].noCumple++;
-    else if (estado === 'No Medido') nivelStats[nivel].noMedido++;
+    else if (estado === 'No Medido' || estado === 'No Aplica') nivelStats[nivel].noMedido++;
   });
 
   Object.keys(nivelStats).forEach(nivel => {
@@ -271,22 +277,22 @@ const Evaluacion = () => {
 
         const catStats = calculateCategoryStats(dataFromSiste);
         setCategoryStats(catStats);
-        saveDocumentsToFirestore(Object.values(catStats), 'categoryStats', 'id');
+        saveDocumentsToFirestore(Object.values(catStats), `categoryStats_${selectedClient.code}`, 'id');
 
         const nivStats = calculateNivelStats(dataFromSiste);
         setNivelStats(Object.values(nivStats));
-        saveDocumentsToFirestore(Object.values(nivStats), 'nivelStats', 'id');
+        saveDocumentsToFirestore(Object.values(nivStats), `nivelStats_${selectedClient.code}`, 'id');
       } else {
         const procesos = snapshot.docs.map(doc => doc.data());
         setData(procesos);
 
         const catStats = calculateCategoryStats(procesos);
         setCategoryStats(catStats);
-        saveDocumentsToFirestore(Object.values(catStats), 'categoryStats', 'id');
+        saveDocumentsToFirestore(Object.values(catStats), `categoryStats_${selectedClient.code}`, 'id');
 
         const nivStats = calculateNivelStats(procesos);
         setNivelStats(Object.values(nivStats));
-        saveDocumentsToFirestore(Object.values(nivStats), 'nivelStats', 'id');
+        saveDocumentsToFirestore(Object.values(nivStats), `nivelStats_${selectedClient.code}`, 'id');
       }
     });
     return () => unsubscribe();
@@ -302,14 +308,14 @@ const Evaluacion = () => {
     return () => unsubscribeAcum();
   }, []);
 
-  // Actualiza el porcentaje y calcula el estado usando las metas
+  // Actualiza el porcentaje y calcula el estado usando las metas.
+  // Solo se actualiza si el proceso está evaluado (evaluar !== false)
   const updatePorcentaje = (e, id) => {
     const p = parseFloat(e.target.value);
     const newPercentage = isNaN(p) ? 0 : p;
-    const estado = getEstado(newPercentage, selectedClient.metas);
     const updatedData = data.map(item =>
-      item.id === id
-        ? { ...item, porcentaje: newPercentage, estado }
+      item.id === id && item.evaluar !== false
+        ? { ...item, porcentaje: newPercentage, estado: getEstado(newPercentage, selectedClient.metas) }
         : item
     );
     setData(updatedData);
@@ -326,13 +332,14 @@ const Evaluacion = () => {
     await updateDoc(docRef, { [field]: value });
   };
 
+  // Actualiza las estadísticas de nivel (se usa en la tabla NivelTable)
   const updateNivelStats = (e, nivel, campo) => {
     const newValue = parseInt(e.target.value, 10);
     const updatedNivelStats = nivelStats.map(item =>
       item.nivel === nivel ? { ...item, [campo]: newValue } : item
     );
     setNivelStats(updatedNivelStats);
-    saveDocumentsToFirestore(updatedNivelStats, 'nivelStats', 'id');
+    saveDocumentsToFirestore(updatedNivelStats, `nivelStats_${selectedClient.code}`, 'id');
   };
 
   const addRowAcumulado = () => {
@@ -360,9 +367,31 @@ const Evaluacion = () => {
   // Para el select de responsables
   const uniqueResponsables = Array.from(new Set(data.map(item => item.responsable)));
 
-  // Nueva función para actualizar el campo "evaluar" (checklist)
+  // Función para actualizar el campo "evaluar" (checkbox).
+  // Si se marca, se recalcula el estado; si se desmarca, se asigna "No Aplica" y el proceso se excluye de los cálculos.
   const updateEvaluar = async (id, value) => {
     await updateField(id, 'evaluar', value);
+    if (value) {
+      const updatedData = data.map(item => {
+        if (item.id === id) {
+          const porcentaje = item.porcentaje;
+          const estado = getEstado(porcentaje, selectedClient.metas);
+          return { ...item, estado };
+        }
+        return item;
+      });
+      setData(updatedData);
+      saveDocumentsToFirestore(updatedData, selectedClient.collection, 'id');
+    } else {
+      const updatedData = data.map(item => {
+        if (item.id === id) {
+          return { ...item, estado: 'No Aplica' };
+        }
+        return item;
+      });
+      setData(updatedData);
+      saveDocumentsToFirestore(updatedData, selectedClient.collection, 'id');
+    }
   };
 
   return (
