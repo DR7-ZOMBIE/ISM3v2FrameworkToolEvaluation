@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { AiOutlineUser, AiOutlineLock } from 'react-icons/ai';
 import { FcGoogle } from 'react-icons/fc';
 import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { auth } from '../firebase-config'; // Asegúrate de que este archivo esté correctamente configurado
+import { logEvent } from "firebase/analytics"; // Importa logEvent para registrar eventos
+import { auth, analytics } from '../firebase-config'; // Asegúrate de que analytics esté exportado desde firebase-config
 
 const Login = ({ setIsAuthenticated }) => {
   const navigate = useNavigate();
@@ -19,9 +20,15 @@ const Login = ({ setIsAuthenticated }) => {
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, credentials.username, credentials.password);
+      
+      // Registra un evento de inicio de sesión exitoso usando email
+      logEvent(analytics, 'login', { method: 'email' });
+
       setIsAuthenticated(true);
       navigate('/');
     } catch (error) {
+      // Registra un evento de error en el inicio de sesión
+      logEvent(analytics, 'login_failure', { method: 'email', error: true });
       alert("Error al iniciar sesión: " + error.message);
     } finally {
       setLoading(false);
@@ -33,9 +40,15 @@ const Login = ({ setIsAuthenticated }) => {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
+
+      // Registra un evento de inicio de sesión exitoso con Google
+      logEvent(analytics, 'login', { method: 'google' });
+
       setIsAuthenticated(true);
       navigate('/');
     } catch (error) {
+      // Registra un evento de error en el inicio de sesión con Google
+      logEvent(analytics, 'login_failure', { method: 'google', error: true });
       alert("Error al iniciar sesión con Google: " + error.message);
     } finally {
       setLoading(false);
