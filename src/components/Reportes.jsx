@@ -14,18 +14,16 @@ import {
   LineElement,
   ArcElement,
   Filler,
-  ScatterController
+  ScatterController,
+  BubbleController // Importamos y registramos el BubbleController
 } from 'chart.js';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
-import { BoxPlotController, BoxAndWiskers, ViolinController, Violin } from '@sgratzl/chartjs-chart-boxplot';
 import { 
   Container, Typography, Button, Paper, Box, Grid, 
   FormControl, InputLabel, Select, MenuItem 
 } from '@mui/material';
 import { db, collection, getDocs } from '../firebase-config';
 import html2canvas from 'html2canvas';
-
-// Importa componentes de react‑pdf
 import {
   PDFDownloadLink,
   Document,
@@ -36,7 +34,7 @@ import {
   StyleSheet,
 } from '@react-pdf/renderer';
 
-// Registro de plugins de ChartJS
+// Registro de plugins de ChartJS, incluyendo el BubbleController
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -51,10 +49,7 @@ ChartJS.register(
   Filler,
   ChartDataLabels,
   ScatterController,
-  BoxPlotController,
-  BoxAndWiskers,
-  ViolinController,
-  Violin
+  BubbleController
 );
 
 const colors = {
@@ -68,65 +63,27 @@ const colors = {
   noMedidoBorder: '#7F8C8D'
 };
 
+// Función para obtener documentos desde Firestore
 const fetchDocumentsFromFirestore = async (collectionName) => {
   const colRef = collection(db, collectionName);
   const snapshot = await getDocs(colRef);
   return snapshot.docs.map((doc) => doc.data());
 };
 
-const calculateCategoryStats = (data) => {
-  // Esta función se deja aquí de referencia, pero en Reportes usaremos los datos guardados en la colección
-  const categoryStats = {};
-  const possibleCategories = ['c', 'o', 'v', 'r', '$', 'g', 'p'];
-  const categoryNames = {
-    c: 'Cultura/Entrenamiento',
-    o: 'Operar Seguros',
-    v: 'Vigilar/Prever',
-    r: 'Resiliencia/Continuidad',
-    $: 'Inversiones/Presupuesto',
-    g: 'Gestión de Seguridad',
-    p: 'Planeación'
-  };
-
-  possibleCategories.forEach((category) => {
-    categoryStats[category] = {
-      nombre: categoryNames[category],
-      cumple: 0,
-      cumpleParcial: 0,
-      noCumple: 0,
-      noMedido: 0
-    };
-  });
-
-  data.forEach((item) => {
-    const cat = item.categoria;
-    if (!categoryStats[cat]) {
-      categoryStats[cat] = { nombre: cat, cumple: 0, cumpleParcial: 0, noCumple: 0, noMedido: 0 };
-    }
-    switch (item.estado) {
-      case 'Cumple':
-        categoryStats[cat].cumple++;
-        break;
-      case 'Cumple Parcialmente':
-        categoryStats[cat].cumpleParcial++;
-        break;
-      case 'No Cumple':
-        categoryStats[cat].noCumple++;
-        break;
-      case 'No Medido':
-        categoryStats[cat].noMedido++;
-        break;
-      default:
-        break;
-    }
-  });
-  return categoryStats;
+// Función para capturar la imagen de un elemento (para PDF)
+const getElementImage = async (elementRef) => {
+  if (elementRef.current) {
+    const canvas = await html2canvas(elementRef.current, {
+      scale: 3,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+    });
+    return canvas.toDataURL('image/png');
+  }
+  return null;
 };
 
-const computeBoxPlotStats = (value) => ({ min: value, q1: value, median: value, q3: value, max: value });
-
-/* ===================== COMPONENTES PARA PDF (react-pdf) ===================== */
-
+// Configuración de estilos para PDF
 const pdfStyles = StyleSheet.create({
   page: {
     padding: 40,
@@ -164,6 +121,7 @@ const pdfStyles = StyleSheet.create({
   },
 });
 
+// Componente para generar el documento PDF
 const MyDocument = ({ pdfData }) => (
   <Document>
     <Page style={pdfStyles.page}>
@@ -216,16 +174,16 @@ const MyDocument = ({ pdfData }) => (
           <Image style={pdfStyles.image} src={pdfData.gauge} />
         </View>
       )}
-      {pdfData.boxPlot && (
+      {pdfData.trendLine && (
         <View style={pdfStyles.section}>
-          <Text style={pdfStyles.sectionTitle}>Box Plot</Text>
-          <Image style={pdfStyles.image} src={pdfData.boxPlot} />
+          <Text style={pdfStyles.sectionTitle}>Promedio Móvil de Cumplimiento Global</Text>
+          <Image style={pdfStyles.image} src={pdfData.trendLine} />
         </View>
       )}
-      {pdfData.violin && (
+      {pdfData.bubble && (
         <View style={pdfStyles.section}>
-          <Text style={pdfStyles.sectionTitle}>Violin Plot</Text>
-          <Image style={pdfStyles.image} src={pdfData.violin} />
+          <Text style={pdfStyles.sectionTitle}>Volumen vs Cumplimiento</Text>
+          <Image style={pdfStyles.image} src={pdfData.bubble} />
         </View>
       )}
       <Text style={pdfStyles.footer}>Velasco & Calle</Text>
@@ -241,33 +199,22 @@ const ReportePDF = ({ pdfData }) => (
   </Box>
 );
 
-/* ===================== COMPONENTE PRINCIPAL: REPORTES ===================== */
-
-const getElementImage = async (elementRef) => {
-  if (elementRef.current) {
-    const canvas = await html2canvas(elementRef.current, {
-      scale: 3,
-      backgroundColor: '#ffffff',
-      useCORS: true,
-    });
-    return canvas.toDataURL('image/png');
-  }
-  return null;
-};
-
 const Reportes = () => {
+  // Lista de clientes
   const clients = [
     { name: 'Universidad Cooperativa de Colombia', code: 'UCC', collection: 'procesos_UCC' },
     { name: 'Cajacopi', code: 'CAJACOPI', collection: 'procesos_Cajacopi' },
     { name: 'Cámara de Comercio de Medellín', code: 'CAMARA', collection: 'procesos_Camara' },
     { name: 'SisteCrédito', code: 'SISTECREDITO', collection: 'procesos' }
   ];
-
   const [selectedClient, setSelectedClient] = useState(clients[0]);
   const [loading, setLoading] = useState(true);
   const [pdfData, setPdfData] = useState({});
 
-  // Refs para capturar cada gráfico
+  // Estado para almacenar la data de "acumulado"
+  const [acumuladoData, setAcumuladoData] = useState([]);
+
+  // Refs para capturar gráficos en el PDF
   const radarRef = useRef(null);
   const lineRef = useRef(null);
   const barRef = useRef(null);
@@ -276,10 +223,10 @@ const Reportes = () => {
   const groupedRef = useRef(null);
   const donutRef = useRef(null);
   const gaugeRef = useRef(null);
-  const boxPlotRef = useRef(null);
-  const violinRef = useRef(null);
+  const trendLineRef = useRef(null);
+  const bubbleRef = useRef(null);
 
-  // Estados de los gráficos
+  // Estados de gráficos
   const [radarData, setRadarData] = useState({});
   const [lineData, setLineData] = useState({});
   const [barData, setBarData] = useState({});
@@ -288,24 +235,24 @@ const Reportes = () => {
   const [groupedCategoryData, setGroupedCategoryData] = useState({});
   const [donutOverallData, setDonutOverallData] = useState({});
   const [gaugeData, setGaugeData] = useState({});
-  const [combinedBoxPlotData, setCombinedBoxPlotData] = useState({});
-  const [combinedViolinData, setCombinedViolinData] = useState({});
+  const [complianceTrendData, setComplianceTrendData] = useState({});
+  const [bubbleChartData, setBubbleChartData] = useState({});
 
   const fetchAndProcessData = async () => {
     try {
-      // Obtiene procesos del cliente
+      // Obtención de datos desde Firestore
       let procesos = await fetchDocumentsFromFirestore(selectedClient.collection);
       if (procesos.length === 0 && selectedClient.collection !== 'procesos') {
         procesos = await fetchDocumentsFromFirestore('procesos');
       }
       const acumulado = await fetchDocumentsFromFirestore('acumulado');
-      // Obtiene los datos de niveles de la colección propia del cliente
+      setAcumuladoData(acumulado); // Guardamos la data en el estado
+
       const nivelStatsData = await fetchDocumentsFromFirestore(`nivelStats_${selectedClient.code}`);
-      // Obtiene los datos de categorías desde la colección propia
       const catStatsArray = await fetchDocumentsFromFirestore(`categoryStats_${selectedClient.code}`);
       const catStats = {};
-      catStatsArray.forEach(item => {
-        catStats[item.id] = item;
+      catStatsArray.forEach(item => { 
+        catStats[item.id] = item; 
       });
       const catKeysAll = Object.keys(catStats);
       const catKeysFiltered = catKeysAll.filter(key => {
@@ -313,7 +260,7 @@ const Reportes = () => {
         return (s.cumple + s.cumpleParcial + s.noCumple + s.noMedido) > 0;
       });
 
-      // Radar: % de "Cumple" por categoría
+      // (A) Radar Chart: % de "Cumple" por categoría
       const radarValues = catKeysFiltered.map(key => {
         const s = catStats[key];
         const total = s.cumple + s.cumpleParcial + s.noCumple + s.noMedido;
@@ -334,7 +281,7 @@ const Reportes = () => {
         datasets: [radarDataset]
       });
 
-      // Línea: Evolución mensual acumulada (Área Apilada)
+      // (B) Stacked Area Chart: Evolución mensual acumulada
       const labelsLine = acumulado.map(item => item.mes);
       const lineStates = [
         { label: 'Cumple', field: 'cumple', backgroundColor: colors.cumple, borderColor: colors.cumpleBorder },
@@ -359,7 +306,33 @@ const Reportes = () => {
       setLineData({ labels: labelsLine, datasets: filteredLineDatasets });
       setStackedLineData({ labels: labelsLine, datasets: filteredLineDatasets });
 
-      // Barras: Estadísticas por nivel ISM3
+      // (C) Grouped Bar Chart: Estadísticas por categoría (conteo)
+      const groupedStates = [
+        { label: 'Cumple', field: 'cumple', backgroundColor: colors.cumple, borderColor: colors.cumpleBorder },
+        { label: 'Cumple Parcial', field: 'cumpleParcial', backgroundColor: colors.parcial, borderColor: colors.parcialBorder },
+        { label: 'No Cumple', field: 'noCumple', backgroundColor: colors.noCumple, borderColor: colors.noCumpleBorder },
+        { label: 'No Medido', field: 'noMedido', backgroundColor: colors.noMedido, borderColor: colors.noMedidoBorder }
+      ];
+      const filteredGroupedDatasets = groupedStates.map(st => {
+        const data = catKeysFiltered.map(key => {
+          const val = catStats[key][st.field];
+          return val === 0 ? null : val;
+        });
+        if (data.every(value => value === null)) return null;
+        return {
+          label: st.label,
+          data,
+          backgroundColor: st.backgroundColor,
+          borderColor: st.borderColor,
+          borderWidth: 1
+        };
+      }).filter(ds => ds !== null);
+      setGroupedCategoryData({
+        labels: catKeysFiltered.map(key => catStats[key].nombre.toUpperCase()),
+        datasets: filteredGroupedDatasets
+      });
+
+      // (E) Barras: Cumplimiento por nivel ISM3
       const nivelLabels = nivelStatsData.map(item => item.nombre || `Nivel ${item.nivel}`);
       const barStates = [
         { label: 'Cumple', field: 'pcCumple', backgroundColor: colors.cumple, borderColor: colors.cumpleBorder },
@@ -380,7 +353,7 @@ const Reportes = () => {
       }).filter(ds => ds !== null);
       setBarData({ labels: nivelLabels, datasets: filteredBarDatasets });
 
-      // Pie: Estado de cumplimiento del último mes
+      // (F) Pie: Estado de cumplimiento del último mes
       const lastMonthData = acumulado[acumulado.length - 1] || { cumple: 0, cumpleParcial: 0, noCumple: 0, noMedido: 0 };
       const totalLastMonth = lastMonthData.cumple + lastMonthData.cumpleParcial + lastMonthData.noCumple + lastMonthData.noMedido || 1;
       const rawPieData = [
@@ -413,33 +386,7 @@ const Reportes = () => {
         }]
       });
 
-      // Grouped Bar Chart: Estadísticas por categoría (conteo)
-      const groupedStates = [
-        { label: 'Cumple', field: 'cumple', backgroundColor: colors.cumple, borderColor: colors.cumpleBorder },
-        { label: 'Cumple Parcial', field: 'cumpleParcial', backgroundColor: colors.parcial, borderColor: colors.parcialBorder },
-        { label: 'No Cumple', field: 'noCumple', backgroundColor: colors.noCumple, borderColor: colors.noCumpleBorder },
-        { label: 'No Medido', field: 'noMedido', backgroundColor: colors.noMedido, borderColor: colors.noMedidoBorder }
-      ];
-      const filteredGroupedDatasets = groupedStates.map(st => {
-        const data = catKeysFiltered.map(key => {
-          const val = catStats[key][st.field];
-          return val === 0 ? null : val;
-        });
-        if (data.every(value => value === null)) return null;
-        return {
-          label: st.label,
-          data,
-          backgroundColor: st.backgroundColor,
-          borderColor: st.borderColor,
-          borderWidth: 1
-        };
-      }).filter(ds => ds !== null);
-      setGroupedCategoryData({
-        labels: catKeysFiltered.map(key => catStats[key].nombre.toUpperCase()),
-        datasets: filteredGroupedDatasets
-      });
-
-      // Donut Chart: Global acumulado
+      // (G) Donut Chart: Global acumulado
       let totalCumpleVal = 0, totalCumpleParcialVal = 0, totalNoCumpleVal = 0, totalNoMedidoVal = 0;
       acumulado.forEach(item => {
         totalCumpleVal += item.cumple;
@@ -478,7 +425,7 @@ const Reportes = () => {
         }]
       });
 
-      // Gauge Chart: Indicador global de cumplimiento
+      // (H) Gauge Chart: Indicador global de cumplimiento
       const overallPctCumple = Math.round((totalCumpleVal / totalOverall) * 100);
       setGaugeData({
         labels: ['Cumple', 'Restante'],
@@ -489,88 +436,73 @@ const Reportes = () => {
         }]
       });
 
-      // Box Plot y Violin Plot
-      const labelsPlot = acumulado.map(item => item.mes);
-      const boxData = acumulado.map(item => computeBoxPlotStats(item.cumple));
-      const scatterCumpleParcial = acumulado.map(item => ({ x: item.mes, y: item.cumpleParcial }));
-      const scatterNoCumple = acumulado.map(item => ({ x: item.mes, y: item.noCumple }));
-      const scatterNoMedido = acumulado.map(item => ({ x: item.mes, y: item.noMedido }));
-
-      setCombinedBoxPlotData({
-        labels: labelsPlot,
+      // -------------------------
+      // NUEVO GRÁFICO EXPERTO: Promedio Móvil de Cumplimiento Global (3 meses)
+      // -------------------------
+      const overallPercentages = acumulado.map(item => {
+        const total = item.cumple + item.cumpleParcial + item.noCumple + item.noMedido;
+        return total > 0 ? Math.round((item.cumple / total) * 100) : 0;
+      });
+      const movingAverage = overallPercentages.map((val, i, arr) => {
+        if (i < 2) return null;
+        const sum = arr[i] + arr[i - 1] + arr[i - 2];
+        return Math.round(sum / 3);
+      });
+      const movingAverageData = {
+        labels: acumulado.map(item => item.mes),
         datasets: [
           {
-            type: 'boxplot',
-            label: 'Cumple',
-            data: boxData,
+            label: 'Cumplimiento (%)',
+            data: overallPercentages,
             backgroundColor: colors.cumple.replace('0.6', '0.3'),
             borderColor: colors.cumpleBorder,
-            borderWidth: 1
+            borderWidth: 2,
+            fill: false,
+            tension: 0.4,
+            pointRadius: 4
           },
           {
-            type: 'scatter',
-            label: 'Cumple Parcial',
-            data: scatterCumpleParcial,
-            backgroundColor: colors.parcial,
-            borderColor: colors.parcialBorder,
-            pointRadius: 10
-          },
-          {
-            type: 'scatter',
-            label: 'No Cumple',
-            data: scatterNoCumple,
-            backgroundColor: colors.noCumple,
-            borderColor: colors.noCumpleBorder,
-            pointRadius: 10
-          },
-          {
-            type: 'scatter',
-            label: 'No Medido',
-            data: scatterNoMedido,
-            backgroundColor: colors.noMedido,
-            borderColor: colors.noMedidoBorder,
-            pointRadius: 10
+            label: 'Promedio Móvil (3 meses)',
+            data: movingAverage,
+            backgroundColor: 'transparent',
+            borderColor: '#2C3E50',
+            borderWidth: 2,
+            borderDash: [5, 5],
+            fill: false,
+            tension: 0.4,
+            pointRadius: 3
           }
         ]
-      });
+      };
+      setComplianceTrendData(movingAverageData);
 
-      setCombinedViolinData({
-        labels: labelsPlot,
-        datasets: [
-          {
-            type: 'violin',
-            label: 'Cumple',
-            data: boxData,
-            backgroundColor: colors.cumple.replace('0.6', '0.3'),
-            borderColor: colors.cumpleBorder,
-            borderWidth: 1
-          },
-          {
-            type: 'scatter',
-            label: 'Cumple Parcial',
-            data: scatterCumpleParcial,
-            backgroundColor: colors.parcial,
-            borderColor: colors.parcialBorder,
-            pointRadius: 10
-          },
-          {
-            type: 'scatter',
-            label: 'No Cumple',
-            data: scatterNoCumple,
-            backgroundColor: colors.noCumple,
-            borderColor: colors.noCumpleBorder,
-            pointRadius: 10
-          },
-          {
-            type: 'scatter',
-            label: 'No Medido',
-            data: scatterNoMedido,
-            backgroundColor: colors.noMedido,
-            borderColor: colors.noMedidoBorder,
-            pointRadius: 10
-          }
-        ]
+      // -------------------------
+      // NUEVO GRÁFICO EXPERTO: Bubble Chart - Volumen vs Cumplimiento
+      // -------------------------
+      // Usamos acumuladoData para calcular los porcentajes y nombres de meses
+      const overallPercentagesForBubble = acumulado.map(item => {
+        const total = item.cumple + item.cumpleParcial + item.noCumple + item.noMedido;
+        return total > 0 ? Math.round((item.cumple / total) * 100) : 0;
       });
+      const bubbleDataPoints = acumulado.map((item, i) => {
+        const total = item.cumple + item.cumpleParcial + item.noCumple + item.noMedido;
+        return {
+          x: i,
+          y: overallPercentagesForBubble[i],
+          r: total > 0 ? parseInt(Math.sqrt(total)) : 0,
+          mes: item.mes  // Se incluye el nombre real del mes
+        };
+      });
+      const bubbleData = {
+        datasets: [{
+          label: 'Volumen vs Cumplimiento',
+          data: bubbleDataPoints,
+          backgroundColor: colors.parcial,
+          borderColor: colors.parcialBorder,
+          borderWidth: 1
+        }]
+      };
+      setBubbleChartData(bubbleData);
 
       setLoading(false);
     } catch (error) {
@@ -581,6 +513,7 @@ const Reportes = () => {
 
   useEffect(() => {
     fetchAndProcessData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedClient]);
 
   const generarImagenesPDF = async () => {
@@ -594,8 +527,8 @@ const Reportes = () => {
       nuevosDatos.grouped = await getElementImage(groupedRef);
       nuevosDatos.donut = await getElementImage(donutRef);
       nuevosDatos.gauge = await getElementImage(gaugeRef);
-      nuevosDatos.boxPlot = await getElementImage(boxPlotRef);
-      nuevosDatos.violin = await getElementImage(violinRef);
+      nuevosDatos.trendLine = await getElementImage(trendLineRef);
+      nuevosDatos.bubble = await getElementImage(bubbleRef);
       console.log('PDF Data:', nuevosDatos);
       setPdfData(nuevosDatos);
     }, 500);
@@ -612,8 +545,8 @@ const Reportes = () => {
         mb={4} 
         display="flex" 
         flexDirection={{ xs: 'column', sm: 'row' }} 
-        alignItems="center"
-        justifyContent="center"
+        alignItems="center" 
+        justifyContent="center" 
         gap={2}
       >
         <FormControl variant="outlined" sx={{ minWidth: 200 }}>
@@ -646,17 +579,8 @@ const Reportes = () => {
       <Grid container spacing={4} justifyContent="center">
         {/* (A) Radar */}
         <Grid item xs={12} md={6}>
-          <Paper 
-            elevation={4} 
-            sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} 
-            ref={radarRef}
-          >
-            <Typography 
-              variant="subtitle1" 
-              align="center" 
-              gutterBottom 
-              sx={{ fontWeight: 'bold' }}
-            >
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} ref={radarRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               % por categoría (Radar)
             </Typography>
             <Radar
@@ -684,17 +608,8 @@ const Reportes = () => {
 
         {/* (B) Stacked Area Chart */}
         <Grid item xs={12} md={6}>
-          <Paper 
-            elevation={4} 
-            sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} 
-            ref={stackedRef}
-          >
-            <Typography 
-              variant="subtitle1" 
-              align="center" 
-              gutterBottom 
-              sx={{ fontWeight: 'bold' }}
-            >
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} ref={stackedRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Evolución mensual (Área Apilada)
             </Typography>
             <Line
@@ -718,17 +633,8 @@ const Reportes = () => {
 
         {/* (C) Grouped Bar Chart */}
         <Grid item xs={12} md={6}>
-          <Paper 
-            elevation={4} 
-            sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} 
-            ref={groupedRef}
-          >
-            <Typography 
-              variant="subtitle1" 
-              align="center" 
-              gutterBottom 
-              sx={{ fontWeight: 'bold' }}
-            >
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} ref={groupedRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Estadísticas por categoría (Conteo)
             </Typography>
             <Bar
@@ -750,19 +656,10 @@ const Reportes = () => {
           </Paper>
         </Grid>
 
-        {/* (D) Línea: Evolución Mensual Acumulada */}
+        {/* (D) Línea: Evolución mensual acumulado */}
         <Grid item xs={12} md={6}>
-          <Paper 
-            elevation={4} 
-            sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} 
-            ref={lineRef}
-          >
-            <Typography 
-              variant="subtitle1" 
-              align="center" 
-              gutterBottom 
-              sx={{ fontWeight: 'bold' }}
-            >
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} ref={lineRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Evolución mensual acumulado
             </Typography>
             <Line
@@ -784,19 +681,10 @@ const Reportes = () => {
           </Paper>
         </Grid>
 
-        {/* (E) Barras: Nivel ISM3 */}
+        {/* (E) Barras: Cumplimiento por nivel ISM3 */}
         <Grid item xs={12} md={6}>
-          <Paper 
-            elevation={4} 
-            sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} 
-            ref={barRef}
-          >
-            <Typography 
-              variant="subtitle1" 
-              align="center" 
-              gutterBottom 
-              sx={{ fontWeight: 'bold' }}
-            >
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} ref={barRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Cumplimiento por nivel ISM3
             </Typography>
             <Bar
@@ -806,7 +694,7 @@ const Reportes = () => {
                 maintainAspectRatio: false,
                 scales: {
                   x: { grid: { display: false }, ticks: { padding: 20 } },
-                  y: { beginAtZero: true, max: 100, grid: { display: true, drawBorder: false, color: 'rgba(0,0,0,0.1)', lineWidth: 1, drawTicks: false }, ticks: { padding: 20 } }
+                  y: { beginAtZero: true, max: 100, grid: { display: true, drawBorder: false, color: 'rgba(0,0,0,0.1)' }, ticks: { padding: 20 } }
                 },
                 plugins: {
                   legend: { display: true, position: 'top', labels: { font: { family: 'Roboto', size: 12, weight: 'bold' } } },
@@ -818,19 +706,10 @@ const Reportes = () => {
           </Paper>
         </Grid>
 
-        {/* (F) Donut Chart: Global Acumulado */}
+        {/* (F) Donut Chart: Global acumulado */}
         <Grid item xs={12} md={6}>
-          <Paper 
-            elevation={4} 
-            sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%' }} 
-            ref={donutRef}
-          >
-            <Typography 
-              variant="subtitle1" 
-              align="center" 
-              gutterBottom 
-              sx={{ fontWeight: 'bold' }}
-            >
+          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%' }} ref={donutRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Global acumulado (Donut)
             </Typography>
             <Pie
@@ -849,19 +728,10 @@ const Reportes = () => {
           </Paper>
         </Grid>
 
-        {/* (G) Gauge Chart: Indicador Global de Cumplimiento */}
+        {/* (G) Gauge Chart: Indicador global de cumplimiento */}
         <Grid item xs={12} md={6}>
-          <Paper 
-            elevation={4} 
-            sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} 
-            ref={gaugeRef}
-          >
-            <Typography 
-              variant="subtitle1" 
-              align="center" 
-              gutterBottom 
-              sx={{ fontWeight: 'bold' }}
-            >
+          <Paper elevation={4} sx={{ p: 3, height: 500, borderRadius: '12px', width: '100%' }} ref={gaugeRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Indicador global de cumplimiento
             </Typography>
             <Doughnut
@@ -897,19 +767,10 @@ const Reportes = () => {
           </Paper>
         </Grid>
 
-        {/* (H) Pie: Último Mes */}
+        {/* (H) Pie: Estado de cumplimiento (Último Mes) */}
         <Grid item xs={12} md={6}>
-          <Paper 
-            elevation={4} 
-            sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%' }} 
-            ref={pieRef}
-          >
-            <Typography 
-              variant="subtitle1" 
-              align="center" 
-              gutterBottom 
-              sx={{ fontWeight: 'bold' }}
-            >
+          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%' }} ref={pieRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
               Estado de cumplimiento (Último Mes)
             </Typography>
             <Pie
@@ -927,65 +788,99 @@ const Reportes = () => {
           </Paper>
         </Grid>
 
-        {/* (I) Box Plot */}
+        {/* (I) Promedio Móvil de Cumplimiento Global (3 meses) */}
         <Grid item xs={12} md={6}>
-          <Paper 
-            elevation={4} 
-            sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%' }} 
-            ref={boxPlotRef}
-          >
-            <Typography 
-              variant="subtitle1" 
-              align="center" 
-              gutterBottom 
-              sx={{ fontWeight: 'bold' }}
-            >
-              Evolución mensual (Box Plot)
+          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%' }} ref={trendLineRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
+              Promedio Móvil de Cumplimiento Global (3 meses)
             </Typography>
-            <Chart
-              data={combinedBoxPlotData}
+            <Line
+              data={complianceTrendData}
               options={{
                 responsive: true,
                 maintainAspectRatio: false,
-                scales: { x: { type: 'category' }, y: { beginAtZero: true } },
+                scales: {
+                  x: { grid: { display: false }, ticks: { padding: 20 } },
+                  y: { beginAtZero: true, max: 100, grid: { display: true, drawBorder: false, color: 'rgba(0,0,0,0.1)' }, ticks: { padding: 20 } }
+                },
                 plugins: {
-                  tooltip: { enabled: true },
                   legend: { display: true, position: 'top', labels: { font: { family: 'Roboto', size: 12, weight: 'bold' } } },
-                  datalabels: { display: false }
+                  title: { display: false }
                 }
               }}
             />
           </Paper>
         </Grid>
 
-        {/* (J) Violin Plot */}
+        {/* (J) Bubble Chart: Volumen vs Cumplimiento */}
         <Grid item xs={12} md={6}>
-          <Paper 
-            elevation={4} 
-            sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%' }} 
-            ref={violinRef}
-          >
-            <Typography 
-              variant="subtitle1" 
-              align="center" 
-              gutterBottom 
-              sx={{ fontWeight: 'bold' }}
-            >
-              Evolución mensual (Violin Plot)
+          <Paper elevation={4} sx={{ p: 5, height: 500, borderRadius: '12px', width: '100%' }} ref={bubbleRef}>
+            <Typography variant="subtitle1" align="center" gutterBottom sx={{ fontWeight: 'bold' }}>
+              Volumen vs Cumplimiento
             </Typography>
-            <Chart
-              data={combinedViolinData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: { x: { type: 'category' }, y: { beginAtZero: true } },
-                plugins: {
-                  tooltip: { enabled: true },
-                  legend: { display: true, position: 'top', labels: { font: { family: 'Roboto', size: 12, weight: 'bold' } } },
-                  datalabels: { display: false }
-                }
-              }}
-            />
+            {acumuladoData.length > 0 && (() => {
+              const monthNames = acumuladoData.map(item => item.mes); // Array con los nombres reales
+              const overallPercentagesForBubble = acumuladoData.map(item => {
+                const total = item.cumple + item.cumpleParcial + item.noCumple + item.noMedido;
+                return total > 0 ? Math.round((item.cumple / total) * 100) : 0;
+              });
+              return (
+                <Chart
+                  type="bubble"
+                  data={{
+                    datasets: [{
+                      label: 'Volumen vs Cumplimiento',
+                      data: acumuladoData.map((item, i) => {
+                        const total = item.cumple + item.cumpleParcial + item.noCumple + item.noMedido;
+                        const r = total > 0 ? parseInt(Math.sqrt(total)) : 0;
+                        return {
+                          x: i,
+                          y: overallPercentagesForBubble[i],
+                          r: r,
+                          mes: item.mes  // Se incluye el nombre real del mes
+                        };
+                      }),
+                      backgroundColor: colors.parcial,
+                      borderColor: colors.parcialBorder,
+                      borderWidth: 1
+                    }]
+                  }}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                      x: {
+                        title: { display: true, text: 'Mes' },
+                        ticks: {
+                          // Se muestran los nombres reales de los meses
+                          callback: (value, index) => monthNames[index]
+                        }
+                      },
+                      y: {
+                        title: { display: true, text: 'Cumplimiento (%)' },
+                        beginAtZero: true,
+                        max: 100,
+                        ticks: {
+                          stepSize: 10,
+                          callback: (value) => parseInt(value)
+                        }
+                      }
+                    },
+                    plugins: {
+                      tooltip: {
+                        callbacks: {
+                          label: function(context) {
+                            const { x, y, r, mes } = context.raw;
+                            const total = Math.round(r * r);
+                            return `${mes}: ${y}% (Volumen: ${total})`;
+                          }
+                        }
+                      }
+                    }
+                  }}
+                />
+              );
+            })()}
           </Paper>
         </Grid>
       </Grid>

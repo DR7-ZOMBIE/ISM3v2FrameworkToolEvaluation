@@ -22,8 +22,7 @@ import {
   FormControl,
   InputLabel,
   Select,
-  MenuItem,
-  Checkbox
+  MenuItem
 } from '@mui/material';
 
 // Objeto que contiene la descripción de cada proceso (según la matriz de procesos que manejas)
@@ -67,7 +66,8 @@ const processDescriptions = {
   "TSP-6": "Definición de los entornos operativos y ciclo de vida de los activos, integrando medidas de seguridad en cada fase.",
   "TSP-7": "Verificación de antecedentes del personal en roles críticos para garantizar la idoneidad y confiabilidad.",
   "TSP-8": "Proceso de selección y reclutamiento del personal especializado en seguridad de la información.",
-  "TSP-9": "Desarrollo e implementación de programas de capacitación continua en temas de seguridad de la información."
+  "TSP-9": "Desarrollo e implementación de programas de capacitación continua en temas de seguridad de la información.",
+  "OSP-23": "Detección y análisis de eventos internos"
 };
 
 // Función para determinar el color de fondo según el estado de cumplimiento
@@ -146,7 +146,7 @@ const calculateCategoryStats = (data) => {
 
   data.forEach(item => {
     // Solo se cuentan los procesos que estén evaluados
-    if(item.evaluar === false) return;
+    if (item.evaluar === false) return;
     const { estado, categoria } = item;
     if (!categoryStats[categoria]) {
       categoryStats[categoria] = { id: categoria, nombre: categoria, cumple: 0, cumpleParcial: 0, noCumple: 0, noMedido: 0 };
@@ -201,7 +201,7 @@ const calculateNivelStats = (data) => {
   }
 
   data.forEach(item => {
-    if(item.evaluar === false) return;
+    if (item.evaluar === false) return;
     const { estado, nivel } = item;
     if (estado === 'Cumple' || estado === 'Cumple plenamente') nivelStats[nivel].cumple++;
     else if (estado === 'Cumple Parcialmente' || estado === 'Cumple deficientemente') nivelStats[nivel].cumpleParcial++;
@@ -309,7 +309,6 @@ const Evaluacion = () => {
   }, []);
 
   // Actualiza el porcentaje y calcula el estado usando las metas.
-  // Solo se actualiza si el proceso está evaluado (evaluar !== false)
   const updatePorcentaje = (e, id) => {
     const p = parseFloat(e.target.value);
     const newPercentage = isNaN(p) ? 0 : p;
@@ -332,7 +331,7 @@ const Evaluacion = () => {
     await updateDoc(docRef, { [field]: value });
   };
 
-  // Actualiza las estadísticas de nivel (se usa en la tabla NivelTable)
+  // Actualiza las estadísticas de nivel (para la tabla NivelTable)
   const updateNivelStats = (e, nivel, campo) => {
     const newValue = parseInt(e.target.value, 10);
     const updatedNivelStats = nivelStats.map(item =>
@@ -342,11 +341,21 @@ const Evaluacion = () => {
     saveDocumentsToFirestore(updatedNivelStats, `nivelStats_${selectedClient.code}`, 'id');
   };
 
+  // Agrega una nueva fila en la tabla "acumulado"
   const addRowAcumulado = () => {
-    const newRow = { id: Date.now().toString(), mes: '', cumple: 0, cumpleParcial: 0, noCumple: 0, noMedido: 0, noAplica: 0 };
+    const newRow = {
+      id: Date.now().toString(),
+      mes: '',
+      cumple: 0,
+      cumpleParcial: 0,
+      noCumple: 0,
+      noMedido: 0,
+      noAplica: 0
+    };
     saveDocumentsToFirestore([newRow], 'acumulado', 'id');
   };
 
+  // Elimina una fila de la tabla "acumulado"
   const deleteRowAcumulado = async (id) => {
     try {
       await deleteDoc(doc(db, 'acumulado', id));
@@ -355,6 +364,7 @@ const Evaluacion = () => {
     }
   };
 
+  // Actualiza los valores de la tabla "acumulado"
   const updateAcumulado = (e, id, field) => {
     const value = field === 'mes' ? e.target.value : parseInt(e.target.value, 10) || 0;
     const updatedAcumulado = acumulado.map(item =>
@@ -364,11 +374,10 @@ const Evaluacion = () => {
     saveDocumentsToFirestore(updatedAcumulado, 'acumulado', 'id');
   };
 
-  // Para el select de responsables
+  // Lista de responsables (para el <select>)
   const uniqueResponsables = Array.from(new Set(data.map(item => item.responsable)));
 
-  // Función para actualizar el campo "evaluar" (checkbox).
-  // Si se marca, se recalcula el estado; si se desmarca, se asigna "No Aplica" y el proceso se excluye de los cálculos.
+  // Actualiza el campo "evaluar" (checkbox)
   const updateEvaluar = async (id, value) => {
     await updateField(id, 'evaluar', value);
     if (value) {
@@ -394,15 +403,59 @@ const Evaluacion = () => {
     }
   };
 
+  // Función para actualizar OSP-23
+  const agregarDescripcionOSP23 = async () => {
+    const docRef = doc(db, "procesos_UCC", "OSP-23");
+    try {
+      await updateDoc(docRef, {
+        proceso: "OSP-23",
+        nombre: "Detección y análisis de eventos internos",
+        descripcion: "Este proceso cubre la conversión de los datos capturados en archivos de log y otras fuentes, en información útil para la detección de incidentes e intrusiones.",
+        nivel: 1
+      });
+      console.log("Documento OSP-23 actualizado correctamente.");
+    } catch (error) {
+      console.error("Error al actualizar el documento OSP-23:", error);
+    }
+  };
+
+  // Función para agregar OSP-28 a la colección UCC (se agregan campos por defecto para que afecte los cálculos)
+  const agregarProcesoOSP28 = async () => {
+    const docRef = doc(db, "procesos_UCC", "OSP-28");
+    try {
+      await setDoc(docRef, {
+        proceso: "OSP-28",
+        nombre: "Detección y análisis de eventos externos",
+        descripcion: "Este proceso revisa: a) opiniones en línea y ataques contra la reputación de la empresa; b) phishing o tergiversación de la imagen de la empresa; c) violación de copyrights.",
+        nivel: 1,
+        evaluar: true,
+        porcentaje: 0,
+        categoria: "g",   // Asigna la categoría que corresponda
+        estado: "No Cumple" // Valor por defecto (o calcula el estado a partir del porcentaje)
+      }, { merge: true });
+      console.log("Documento OSP-28 agregado/actualizado correctamente.");
+    } catch (error) {
+      console.error("Error al agregar/actualizar el documento OSP-28:", error);
+    }
+  };
+
+  // Se llama a las funciones para actualizar OSP-23 y OSP-28 solo si el cliente seleccionado es UCC
+  useEffect(() => {
+    if (selectedClient.collection === "procesos_UCC") {
+      agregarDescripcionOSP23();
+      agregarProcesoOSP28();
+    }
+  }, [selectedClient]);
+
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
       {/* Selección de Cliente */}
-      <Box 
-        mb={4} 
-        display="flex" 
-        flexDirection={{ xs: 'column', sm: 'row' }} 
-        alignItems="center" 
-        justifyContent="center" 
+      <Box
+        mb={4}
+        display="flex"
+        flexDirection={{ xs: 'column', sm: 'row' }}
+        alignItems="center"
+        justifyContent="center"
         gap={2}
       >
         <FormControl variant="outlined" sx={{ minWidth: 240 }}>
@@ -425,29 +478,29 @@ const Evaluacion = () => {
         </FormControl>
       </Box>
 
-      <Typography 
-        variant="h5" 
-        align="center" 
-        gutterBottom 
+      <Typography
+        variant="h5"
+        align="center"
+        gutterBottom
         sx={{ fontWeight: 'bold', mb: 4 }}
       >
         Reporte de cumplimiento
       </Typography>
 
-      {/* Tabla de procesos con columna "Descripción" */}
+      {/* Tabla de procesos con columnas "Proceso ISM3", "Nombre" y "Descripción" */}
       <div className="overflow-x-auto mb-8">
         <table className="min-w-full border-collapse text-[10px] shadow-lg rounded-lg">
           <thead className="bg-blue-200 text-blue-900">
             <tr>
               {[
-                'Proceso ISM3', 
-                'Nombre', 
+                'Proceso ISM3',
+                'Nombre',
                 'Descripción',
-                'Responsable', 
-                'Evaluar', 
-                'Estado de Cumplimiento', 
-                '% Cumplimiento', 
-                'Categoría', 
+                'Responsable',
+                'Evaluar',
+                'Estado de Cumplimiento',
+                '% Cumplimiento',
+                'Categoría',
                 'Nivel'
               ].map(h => (
                 <th key={h} className="border px-2 py-1 text-center">{h}</th>
@@ -457,15 +510,19 @@ const Evaluacion = () => {
           <tbody className="divide-y divide-gray-200">
             {data.map(item => (
               <tr key={item.id} className="hover:bg-gray-100">
+                {/* Columna "Proceso ISM3" */}
                 <td className="border px-2 py-1 text-center">{item.proceso}</td>
+                {/* Columna "Nombre" */}
                 <td className="border px-2 py-1 text-center">{item.nombre}</td>
+                {/* Columna "Descripción" */}
                 <td className="border px-2 py-1 text-center">
-                  { item.descripcion 
-                    ? item.descripcion 
-                    : (processDescriptions[item.proceso] 
-                        ? processDescriptions[item.proceso] 
-                        : "Sin descripción disponible") }
+                  {item.descripcion
+                    ? item.descripcion
+                    : (processDescriptions[item.proceso]
+                      ? processDescriptions[item.proceso]
+                      : "Sin descripción disponible")}
                 </td>
+                {/* Columna "Responsable" */}
                 <td className="border px-2 py-1 text-center">
                   <select
                     value={item.responsable}
@@ -477,6 +534,7 @@ const Evaluacion = () => {
                     ))}
                   </select>
                 </td>
+                {/* Columna "Evaluar" */}
                 <td className="border px-2 py-1 text-center">
                   <input
                     type="checkbox"
@@ -484,9 +542,11 @@ const Evaluacion = () => {
                     onChange={(e) => updateEvaluar(item.id, e.target.checked)}
                   />
                 </td>
+                {/* Columna "Estado de Cumplimiento" */}
                 <td className={`border px-2 py-1 text-center ${getStatusColor(item.estado)}`}>
                   {item.estado}
                 </td>
+                {/* Columna "% Cumplimiento" */}
                 <td className="border px-2 py-1 text-center">
                   <input
                     type="number"
@@ -496,6 +556,7 @@ const Evaluacion = () => {
                     disabled={item.evaluar === false}
                   />
                 </td>
+                {/* Columna "Categoría" */}
                 <td className="border px-2 py-1 text-center">
                   <select
                     value={item.categoria}
@@ -507,14 +568,15 @@ const Evaluacion = () => {
                     ))}
                   </select>
                 </td>
+                {/* Columna "Nivel" */}
                 <td className="border px-2 py-1 text-center">
                   <select
                     value={item.nivel}
                     onChange={(e) => updateField(item.id, 'nivel', parseInt(e.target.value, 10))}
                     className="border rounded text-[10px] p-1"
                   >
-                    {[1, 2, 3, 4].map(nivel => (
-                      <option key={nivel} value={nivel}>{nivel}</option>
+                    {[1, 2, 3, 4].map(n => (
+                      <option key={n} value={n}>{n}</option>
                     ))}
                   </select>
                 </td>
@@ -524,6 +586,7 @@ const Evaluacion = () => {
         </table>
       </div>
 
+      {/* Tablas adicionales: Acumulado, Categoría y Nivel */}
       <AcumuladoTable
         acumulado={acumulado}
         updateAcumulado={updateAcumulado}
